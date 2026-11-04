@@ -34,7 +34,7 @@ export function useBlockDraft<V>(block: string, saved: V, revision: number, toVa
   const { t, call, notify } = usePanel()
   const { state } = usePanelData()
   const { reload } = useSettings()
-  return useDraft({ key: `dsh-superagent/draft/${state?.masterId ?? ''}/${block}`, saved, revision, reload, save: async (value, from) => {
+  return useDraft({ key: `dsh-conductor/draft/${state?.masterId ?? ''}/${block}`, saved, revision, reload, save: async (value, from) => {
     const result = await call('PUT settings/:block', { block, body: { value: toValue(value), revision: from } })
     notify(t(result.restarting ? 'savedRestarting' : 'saved'))
     return result

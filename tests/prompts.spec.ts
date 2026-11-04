@@ -58,7 +58,8 @@ it('assembles every role from fixed sections around the team sections, whatever 
 })
 
 it('reads a prompt file whatever its line ends and blank lines, and names a missing or empty one', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'prompt-file-'))
+  // Keep the fixture on the package's drive: Windows relative() cannot cross drives.
+  const dir = mkdtempSync(join(packagePath('prompts'), '.prompt-file-'))
   // promptFile resolves paths relative to prompts/; use a relative path to reach the temp dir.
   const name = (file: string) => relative(packagePath('prompts'), join(dir, file))
   try {
@@ -108,7 +109,7 @@ it('lists a ticket\'s execution environment in its prompt, and says setup is inc
     expect(promptsOf(store).compose(defaultPrompts(), 'worker', ticket).endsWith('- DSH_SUPERAGENT_DIR = "/srv/work/fix-1": This ticket\'s directory.')).toBe(true)
     expect(promptParts(defaultPrompts(), 'worker', 'env').at(-1)).toEqual({ name: 'runtime/environment', kind: 'generated', key: 'runtime/environment',
       text: 'env' })
-    expect(new Prompts(store, () => 100000, () => undefined, () => false).compose(defaultPrompts(), 'worker')).toContain('dsh-superagent is waiting for setup')
+    expect(new Prompts(store, () => 100000, () => undefined, () => false).compose(defaultPrompts(), 'worker')).toContain('dsh-conductor is waiting for setup')
   })
 })
 

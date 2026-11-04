@@ -1,6 +1,6 @@
 # 006 Deployment
 
-Use this guide to install, configure and operate dsh-superagent. It covers accounts, startup checks, upgrades and troubleshooting, building on [001 Domain model](001-domain.md) through [005 Panel](005-panel.md).
+Use this guide to install, configure and operate dsh-conductor. It covers accounts, startup checks, upgrades and troubleshooting, building on [001 Domain model](001-domain.md) through [005 Panel](005-panel.md).
 
 ## What runs
 
@@ -13,16 +13,16 @@ Plugin configuration holds the state directory and machine limits. Direct task r
 
 ### Permissions and isolation
 
-The bundle defines `dsh-superagent-worker` for Ticket Executors, `dsh-superagent-task-worker` for generic task Workers, and `dsh-superagent-router` for the main Session. They appear in the DeepSeek Harness preset list but are intended only for dsh-superagent. Do not select them for personal Sessions or disable their configuration rows. The application needs them to create and resume its Sessions.
+The bundle defines `dsh-conductor-worker` for Ticket Executors, `dsh-conductor-task-worker` for generic task Workers, and `dsh-conductor-router` for the main Session. They appear in the DeepSeek Harness preset list but are intended only for dsh-conductor. Do not select them for personal Sessions or disable their configuration rows. The application needs them to create and resume its Sessions.
 
-Opening a blank managed Session in the Web UI can select the profile's default preset. dsh-superagent restores its role-specific preset before the first turn.
+Opening a blank managed Session in the Web UI can select the profile's default preset. dsh-conductor restores its role-specific preset before the first turn.
 
 The router runs with `danger-full-access`. Ticket workers without a configured Worker profile keep that preset; profile-based Workers use their configured `permissionPreset` (default `workspace-write`). These presets run as the operator's OS user and do not create an OS sandbox. Tool allowlists constrain DSH tool calls, not programs a permitted shell can launch, filesystem access by path, network access, or credentials. For isolation, use a dedicated OS account containing only the agent's credentials.
 
 ## Prerequisites
 
 - Node.js 22.19+ or 24+, pnpm, and DeepSeek Harness satisfying `engines.dsh` in `package.json`.
-- A model provider configured for DeepSeek Harness. dsh-superagent uses the profile's default model unless the Eval or Execution settings name another.
+- A model provider configured for DeepSeek Harness. dsh-conductor uses the profile's default model unless the Eval or Execution settings name another.
 - For direct tasks: a valid Worker catalog and the tools, MCP services and Skills granted by its profiles. GitHub and Feishu accounts are optional.
 - For GitHub Ticket work: git 2.32+, Python 3.8+, tmux, GitHub CLI (`gh`) 2.48+ and a repository on github.com. GitHub Enterprise Server is not supported. Keep a local clone for per-Ticket worktrees; install `git-lfs` if the repository uses it. Source CLI fields must point to compatible `gh` or `lark-cli` wrappers.
 - For Feishu: `lark-cli` (tested with 1.0.90) and a Feishu or Lark app with a bot
@@ -31,7 +31,7 @@ The router runs with `danger-full-access`. Ticket workers without a configured W
 
 ### Agent GitHub account
 
-1. Create a GitHub user account for the agent and give it write access to the repository. A GitHub App cannot be the agent, because dsh-superagent reads the account's notifications.
+1. Create a GitHub user account for the agent and give it write access to the repository. A GitHub App cannot be the agent, because dsh-conductor reads the account's notifications.
 2. Give it a GitHub CLI that uses only its own credentials:
 
    ```sh
@@ -45,7 +45,7 @@ The router runs with `danger-full-access`. Ticket workers without a configured W
    gh-agent api user --jq .login
    ```
 
-   Sign in as the agent account; the last command prints its login. dsh-superagent reads the login the same way.
+   Sign in as the agent account; the last command prints its login. dsh-conductor reads the login the same way.
 
 ### Feishu bot (optional)
 
@@ -53,11 +53,11 @@ The router runs with `danger-full-access`. Ticket workers without a configured W
 2. Give the bot its own `lark-cli` configuration, restricted to the bot identity, and a wrapper:
 
    ```sh
-   LARKSUITE_CLI_CONFIG_DIR="$HOME/.lark-cli-dsh-superagent" lark-cli config init --app-id <cli_…> --app-secret-stdin
-   LARKSUITE_CLI_CONFIG_DIR="$HOME/.lark-cli-dsh-superagent" lark-cli config strict-mode bot --global
+   LARKSUITE_CLI_CONFIG_DIR="$HOME/.lark-cli-dsh-conductor" lark-cli config init --app-id <cli_…> --app-secret-stdin
+   LARKSUITE_CLI_CONFIG_DIR="$HOME/.lark-cli-dsh-conductor" lark-cli config strict-mode bot --global
    cat > ~/.local/bin/lark-bot <<'EOF'
    #!/bin/sh
-   export LARKSUITE_CLI_CONFIG_DIR="$HOME/.lark-cli-dsh-superagent"
+   export LARKSUITE_CLI_CONFIG_DIR="$HOME/.lark-cli-dsh-conductor"
    exec lark-cli "$@"
    EOF
    chmod +x ~/.local/bin/lark-bot
@@ -75,7 +75,7 @@ Run this block once, on a machine that has no `superagent` profile yet:
 
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.1-rc.3
-git clone <this repository> dsh-superagent && cd dsh-superagent
+git clone <this repository> dsh-conductor && cd dsh-conductor
 pnpm install && pnpm build
 dsh superagent --from-default-profile web --dump-config > /dev/null
 dsh plugin --profile superagent add "link:$PWD"
@@ -89,7 +89,7 @@ Run the profile-creation command only for a new installation. If the profile alr
 
 ## Machine configuration
 
-Copy [examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) to `~/.dsh/profiles/superagent/cordis.patch.yml`, replacing that file, and replace every `<placeholder>`. For Feishu, also enable the `dsh-superagent-feishu` entry there. The `webserver` entry sets the panel's port.
+Copy [examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) to `~/.dsh/profiles/superagent/cordis.patch.yml`, replacing that file, and replace every `<placeholder>`. For Feishu, also enable the `dsh-conductor-feishu` entry there. The `webserver` entry sets the panel's port.
 
 | Key | Required | Meaning |
 | --- | --- | --- |
@@ -100,7 +100,7 @@ After the first start, edit machine limits in **Settings → Deployment** or the
 
 ### Worker catalog
 
-To enable direct user-directed task graphs, copy [examples/workers.json](../examples/workers.json), [the Coding template](../examples/workers.coding.json), or [the security template](../examples/workers.security.json) to `<stateDir>/workers.json`. Edit the profiles for the installed tools, MCP tools and Skills in this DSH profile. The Host reads this file at startup; restart dsh-superagent after changing it. Direct task graphs can run without GitHub or Feishu setup. A missing file leaves the existing Source/Ticket workflow available without generic task tools.
+To enable direct user-directed task graphs, copy [examples/workers.json](../examples/workers.json), [the Coding template](../examples/workers.coding.json), or [the security template](../examples/workers.security.json) to `<stateDir>/workers.json`. Edit the profiles for the installed tools, MCP tools and Skills in this DSH profile. The Host reads this file at startup; restart dsh-conductor after changing it. Direct task graphs can run without GitHub or Feishu setup. A missing file leaves the existing Source/Ticket workflow available without generic task tools.
 
 Each profile has a stable `id`, a `name`, `maxInstances`, and optional `description`, `permissionPreset`, `tools`, `mcps`, `skills`, `prompt`, `model` and `workspaceRoot`. Each `mcps` row uses the DSH MCP `serverName` and remote tool names; the runtime allowlists their exact registered names, `mcp__<serverName>__<tool>`. The server must already be configured in DeepSeek Harness and each named tool must be present in the Session scope. Empty capability lists grant no tools, MCP tools or Skills. Generic task Workers use a separate domain-neutral preset with no subagent or global Skill tool; a runtime guard rejects every tool call outside the profile even if a DSH plugin registers it on the Agent itself. The repository README links to the Worker orchestration guide with the complete schema and domain examples.
 
@@ -109,11 +109,11 @@ Task workspaces default to `<stateDir>/task-workspaces/<graph>/<task>`. A profil
 ## Start and stop
 
 ```sh
-scripts/dsh-superagent start
-scripts/dsh-superagent status
+scripts/dsh-conductor start
+scripts/dsh-conductor status
 ```
 
-`start` runs `dsh --profile superagent` in tmux session `dsh-superagent`, or `dsh-<profile>` for another profile. It waits up to one minute for the runtime to become ready or report a setup requirement. On a first run it prints the missing setup information. It refuses duplicate instances, including ones started outside this script.
+`start` runs `dsh --profile superagent` in tmux session `dsh-conductor`, or `dsh-<profile>` for another profile. It waits up to one minute for the runtime to become ready or report a setup requirement. On a first run it prints the missing setup information. It refuses duplicate instances, including ones started outside this script.
 
 `stop` and `restart` request graceful shutdown and wait up to five minutes for Executors. They never force-kill the process or touch other tmux sessions.
 
@@ -134,7 +134,7 @@ A Source that is still starting counts as normal operation. So does a Feishu bot
 
 Each profile stores logs and control files under `.artifacts/`:
 
-- Startup logs: `dsh-superagent-<profile>-<date>-<time>-<pid>.log`, where the pid belongs to the script. The newest 20 are kept.
+- Startup logs: `dsh-conductor-<profile>-<date>-<time>-<pid>.log`, where the pid belongs to the script. The newest 20 are kept.
 - Control files: `control/profiles/<profile>/`, containing the stop marker, lock and process id.
 
 Open the URL printed in the log, then choose **Superagent** in the sidebar.
@@ -144,7 +144,7 @@ Open the URL printed in the log, then choose **Superagent** in the sidebar.
 Create the hourly check in the DeepSeek Harness profile you normally use, not in `superagent`. It must keep running when the agent service is down. Ask an agent in that profile to create an hourly schedule using this prompt, with the checkout path filled in:
 
 ```text
-Check dsh-superagent: run `scripts/dsh-superagent --profile superagent status` in <checkout>. Exit 0: do nothing and say nothing. Exit 2: do not restart; tell me each part under `errors` with its detail, unless you already told me about the same ones. Exit 3: do not restart; tell me what `setup` says setup needs, unless you already told me. If it reports manually_stopped: true, leave it stopped. Otherwise (exit 1) run `scripts/dsh-superagent --profile superagent --respect-stop restart`, which exits the same way: 0 means it recovered, so say nothing; 2 and 3 are reported as above; if it exits 1 or fails otherwise, read the newest .artifacts/dsh-superagent-superagent-*.log and the Troubleshooting section of docs/006-deployment.md, fix what you can, and tell me what was wrong and what you did.
+Check dsh-conductor: run `scripts/dsh-conductor --profile superagent status` in <checkout>. Exit 0: do nothing and say nothing. Exit 2: do not restart; tell me each part under `errors` with its detail, unless you already told me about the same ones. Exit 3: do not restart; tell me what `setup` says setup needs, unless you already told me. If it reports manually_stopped: true, leave it stopped. Otherwise (exit 1) run `scripts/dsh-conductor --profile superagent --respect-stop restart`, which exits the same way: 0 means it recovered, so say nothing; 2 and 3 are reported as above; if it exits 1 or fails otherwise, read the newest .artifacts/dsh-conductor-superagent-*.log and the Troubleshooting section of docs/006-deployment.md, fix what you can, and tell me what was wrong and what you did.
 ```
 
 `--respect-stop` preserves an intentional stop. Only `stop` writes the marker; `start` clears it. `restart` writes no marker, so the check can recover a restart whose shutdown timed out.
@@ -158,8 +158,8 @@ Setup must succeed before polling or work starts. Overview lists missing require
 3. **Execution.** The directory root and a prepare command. To give each Ticket a checkout of the repository:
 
    ```sh
-   git -C /home/me/src/widgets fetch --no-tags "https://github.com/$DSH_SUPERAGENT_GITHUB_REPOSITORY.git" "${DSH_SUPERAGENT_GITHUB_PR_HEAD:-HEAD}:refs/dsh-superagent/$DSH_SUPERAGENT_TICKET" &&
-   git -C /home/me/src/widgets worktree add -b "agent/$DSH_SUPERAGENT_NAME" "$DSH_SUPERAGENT_DIR" "refs/dsh-superagent/$DSH_SUPERAGENT_TICKET"
+   git -C /home/me/src/widgets fetch --no-tags "https://github.com/$DSH_SUPERAGENT_GITHUB_REPOSITORY.git" "${DSH_SUPERAGENT_GITHUB_PR_HEAD:-HEAD}:refs/dsh-conductor/$DSH_SUPERAGENT_TICKET" &&
+   git -C /home/me/src/widgets worktree add -b "agent/$DSH_SUPERAGENT_NAME" "$DSH_SUPERAGENT_DIR" "refs/dsh-conductor/$DSH_SUPERAGENT_TICKET"
    ```
 
    List personal CLIs, such as one signed in to your own account, as blocked commands.
@@ -182,7 +182,7 @@ Agents may rely on these routes and fields. The other routes in `src/app/api.ts`
 | `GET sources` | Each Source's status: `state` (`missing`, `off`, `error`, `setup`, `starting`, `paused` or `ready`), the `health` of its parts, its setup `problem`, the last day's `stats`, the Triggers it `filtered` in that day, and the messages it `dropped` in that day, newest drop first, each with its `channel`, `preview`, `ticket` (`id` and `title`) when it was for one, its `thread` when the store has it, and `dropped.at` and `dropped.reason`, `channelGone` or `channelIgnored` |
 | `PUT settings/<block>` with `{"value": …, "revision": n}` | Saves one block: `saved`, the block's new `revision`, `policy_changed` and `restarting`. `value` is the whole block, as `GET settings` holds it; a missing key takes its default |
 | `POST executor/pause` with `{"paused": true}` or `false` | Pauses or resumes processing: `paused` |
-| `POST setup/check` | Runs setup again by restarting dsh-superagent: `restarting: true`. Refused when setup has nothing to fix |
+| `POST setup/check` | Runs setup again by restarting dsh-conductor: `restarting: true`. Refused when setup has nothing to fix |
 | `POST policy-sync/<source id>` | Syncs that Source's allowed list now: `policy`, the Source's part as saved |
 | `GET prompts`, `PUT prompts` with `{"config", "baseRevision"}` | Reads the prompt configuration: `current`, with its `revision` and `config`, `defaults`, `sections`, the team sections in the order Sessions read them, `skillName`, the pattern of a team skill's name, `builtin`, the names a team skill cannot take, and `skillPrefix`, which Sessions load a skill's name under. Or saves it: the new `revision` |
 | `POST tickets/<id>/retry`, `POST tickets/<id>/stop` | Retries or stops a Ticket, as the panel does |
@@ -233,7 +233,7 @@ The process environment that setup writes:
 - **Command shims** in `<stateDir>/worker-bin`, first on `PATH`: `gh` runs the agent's CLI; `lark-cli` runs the bot's CLI; blocked commands fail. A shim removes its own directory from `PATH` before it runs its target.
 - **git configuration** in `<stateDir>/worker-gitconfig`: replaces the operator's global and system git configuration. It selects the agent CLI as the github.com credential helper, rewrites GitHub SSH addresses to HTTPS and defines Git LFS filters. Personal git settings such as an HTTP proxy do not apply. No commit identity is set here, git never prompts for credentials, and `GH_TOKEN` and `GITHUB_TOKEN` are removed.
 
-A file in `worker-bin` or `worker-gitconfig` that dsh-superagent did not write stops setup. A Ticket directory inside a git repository whose own configuration adds credentials fails the Ticket.
+A file in `worker-bin` or `worker-gitconfig` that dsh-conductor did not write stops setup. A Ticket directory inside a git repository whose own configuration adds credentials fails the Ticket.
 
 ## Try it
 
@@ -244,7 +244,7 @@ From an allowed GitHub account, open an Issue or post a comment containing `@<ag
 1. Wait until no Executor is in the middle of a turn.
 2. Back up `<stateDir>/orchestrator.sqlite`.
 3. Run `git pull && pnpm install && pnpm build`.
-4. Run `scripts/dsh-superagent restart` and inspect its status.
+4. Run `scripts/dsh-conductor restart` and inspect its status.
 
 A restart ends running Assignments and starts replacements with recovery notes. Team text and overridden prompt parts are retained; parts without overrides follow the new defaults. Review parts marked **Default updated** after upgrading.
 
@@ -252,7 +252,7 @@ A database migrated by a newer version cannot be opened by an older one. Rollbac
 
 ### Agent presets
 
-The worker, task-worker and router presets move shell commands to the background after 5 seconds. A Session cannot load without its preset. Keep the `dsh-superagent-worker`, `dsh-superagent-task-worker` and `dsh-superagent-router` rows in `cordis.patch.yml` while their Sessions are in use; otherwise resume fails with `agent-preset/not-found`.
+The worker, task-worker and router presets move shell commands to the background after 5 seconds. A Session cannot load without its preset. Keep the `dsh-conductor-worker`, `dsh-conductor-task-worker` and `dsh-conductor-router` rows in `cordis.patch.yml` while their Sessions are in use; otherwise resume fails with `agent-preset/not-found`.
 
 ## Troubleshooting
 
@@ -266,9 +266,9 @@ Setup problems appear on the overview with a link to the fix, in the panel's lan
 | `@… cannot read …` or `@… cannot push to …` | Give the agent account write access to the repository |
 | `The GitHub Source names no repository.` | Set the repository, `owner/name`, on the GitHub card |
 | A Ticket fails with `The prepare command failed: …` | The output names the cause, such as a wrong clone path; fix the command, then retry the Ticket |
-| `git does not read the github.com credential configuration dsh-superagent writes` | Install git 2.32 or later |
+| `git does not read the github.com credential configuration dsh-conductor writes` | Install git 2.32 or later |
 | A Ticket fails with `The git configuration of the repository in … sets …` | Remove the named credential or `http.*.extraheader` settings from the clone's `.git/config` |
-| `… was not written by dsh-superagent` | Move the named file out of `<stateDir>/worker-bin` or `<stateDir>/worker-gitconfig`, or choose another `stateDir` |
+| `… was not written by dsh-conductor` | Move the named file out of `<stateDir>/worker-bin` or `<stateDir>/worker-gitconfig`, or choose another `stateDir` |
 | `The bot lark-cli allows user identities` | Point the Feishu Source at a bot-only configuration, as in Feishu bot above |
 | `The bot lark-cli does not work.` or `The bot identity of app … is …` | Check the configuration's app id and secret |
 | `The Feishu bot is not a member of the chat.` | Add the bot to the chat in the chat's settings; the next attempt succeeds |
@@ -276,8 +276,8 @@ Setup problems appear on the overview with a link to the fix, in the panel's lan
 | `status` exits 3 | Setup waits: `setup` says what is missing, and the overview links to the setting that fixes it |
 | `status` exits 1 | The service does not run, runs twice, does not answer, or its runtime reports an error; the output and the newest log say which |
 | `… timed out after 90 s`, `… was stopped by …`, `… exited with code …` or `… could not run: …` | A CLI failed without printing why; run the named program by hand as the operator's user to see its own message |
-| The panel says dsh-superagent is not answering | It is restarting, or did not start because of its configuration; the DeepSeek Harness log names the cause |
-| `dsh-superagent configuration has keys it does not use` (log) | Remove the named keys; the message says where each value lives now |
+| The panel says dsh-conductor is not answering | It is restarting, or did not start because of its configuration; the DeepSeek Harness log names the cause |
+| `dsh-conductor configuration has keys it does not use` (log) | Remove the named keys; the message says where each value lives now |
 | The log says the plugin is incompatible with the running dsh | Install a DeepSeek Harness version within the `engines.dsh` range |
 | The panel shows "Failed to load plugins" after a DeepSeek Harness upgrade | Restart the running instance |
 | Nothing happens after a mention | Check that the author is on the Source's allowed list, the Source is on, and processing is not paused. On GitHub, a mention added by editing an Issue's body is not received; mention the agent in a comment |

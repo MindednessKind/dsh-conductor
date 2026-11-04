@@ -15,7 +15,7 @@ it('saves this machine\'s settings in the Deployment settings through DSH\'s con
   await mount()
   await click(tab(zh['tab.settings']))
   await click(find(zh['settingsGroup.deployment'], '.dt-settings-link'))
-  expect(text()).toContain('/srv/dsh-superagent')
+  expect(text()).toContain('/srv/dsh-conductor')
   // Accounts are on the Source settings; the Plugin Manager page, where those are not at hand, shows them here.
   expect(text()).not.toContain('@agent-bot')
   for (const moved of ['仓库克隆', '工单 worktree 目录', '禁用的命令']) expect(text()).not.toContain(moved)
@@ -82,7 +82,7 @@ it('renders the Deployment page with the derived accounts in the Plugin Manager,
   expect(container.textContent).toBe('')
   server.form = fakeForm().form
   await render('page')
-  for (const fact of ['acme/widgets', '@agent-bot', 'Widgets Bot', '账号在 dsh-superagent 面板的来源设置里修改。']) expect(text()).toContain(fact)
+  for (const fact of ['acme/widgets', '@agent-bot', 'Widgets Bot', '账号在 dsh-conductor 面板的来源设置里修改。']) expect(text()).toContain(fact)
   server.setup = { ...server.setup, problem: problemOf('repositoryUnset'), accounts: null }
   await render('page')
   expect(text()).toContain('部署检查未通过：GitHub 来源没有设置监听的仓库。')
@@ -92,14 +92,14 @@ it('renders the Deployment page with the derived accounts in the Plugin Manager,
   expect(text()).toContain(zh.hostNotRunning)
 })
 
-it('tells a dsh-superagent that is starting from a browser that cannot write on the Deployment page', async () => {
+it('tells a dsh-conductor that is starting from a browser that cannot write on the Deployment page', async () => {
   const { form: shared, publish } = fakeForm()
   server.form = shared
   at({ page: 'settings', query: { group: 'deployment' } })
   await mount()
   const limit = () => field<HTMLInputElement>(zh.deploymentPromptMaxChars)
   expect(limit().disabled).toBe(false)
-  // While dsh-superagent restarts, DSH stops serving its entry; the values come back editable once it is served again.
+  // While dsh-conductor restarts, DSH stops serving its entry; the values come back editable once it is served again.
   await act(async () => { publish({ status: 'unavailable' }) })
   expect(text()).toContain(zh.deploymentUnavailable)
   expect(limit().disabled).toBe(true)
@@ -109,7 +109,7 @@ it('tells a dsh-superagent that is starting from a browser that cannot write on 
   expect(text()).toContain(zh.deploymentReadOnly)
 })
 
-it('reads the state every second after a setup check, until dsh-superagent stopped answering and answers again', async () => {
+it('reads the state every second after a setup check, until dsh-conductor stopped answering and answers again', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   onTestFinished(() => { vi.useRealTimers() })
   server.setup = { ...server.setup, problem: problemOf('agentCliUnset'), accounts: null }

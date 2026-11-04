@@ -18,8 +18,8 @@ import type { T } from './text.ts'
 
 type ClientContext = Context & { sessions: ISessions }
 const NS = 'dshSuperagent'
-const PANEL_ID = 'dsh-superagent' as MainPanelId
-const ENTRY = 'dsh-superagent'
+const PANEL_ID = 'dsh-conductor' as MainPanelId
+const ENTRY = 'dsh-conductor'
 
 function HammerIcon({ size }: SidebarPanelIconOwnerProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -48,7 +48,7 @@ function Mounted({ ctx, t }: { ctx: ClientContext; t: T }) {
 export const inject = ['slots', 'locale', 'sessions', 'uiWorkspace']
 /** Registers the panel, sidebar icon, and Plugin Manager config view; `configForms` is optional (without it, machine settings are read-only). */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-superagent: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-conductor: dictionaries')
   const t = ctx.locale.bind(NS)
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID, locale: NS, inject: () => ({}) },
     (props: { t: T }) => <Mounted ctx={ctx} t={props.t} />))

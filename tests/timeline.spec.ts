@@ -14,7 +14,7 @@ import { SourceRegistry } from '../src/sources/registry.ts'
 let directory: string
 let store: Store
 beforeEach(() => {
-  directory = mkdtempSync(join(tmpdir(), 'dsh-superagent-timeline-'))
+  directory = mkdtempSync(join(tmpdir(), 'dsh-conductor-timeline-'))
   store = new Store(join(directory, 'orchestrator.sqlite'))
 })
 afterEach(() => { store.close(); rmSync(directory, { recursive: true, force: true }) })

@@ -1,0 +1,14 @@
+{
+  "$schema": "urn:dsh-std:manifest:0.15",
+  "manifestVersion": "0.15",
+  "id": "dsh.conductor-tui",
+  "name": "DSH Conductor TUI",
+  "version": "0.1.0",
+  "facets": { "host": { "entry": "index.js", "apiVersion": "v1alpha1" } },
+  "requires": { "contracts": [{ "apiVersion": "commands.dsh/v1alpha1", "kind": "Command" }] },
+  "permissions": [{ "name": "commands.invoke", "scope": "dsh.conductor", "reason": "Explicit user commands control the separately running Conductor daemon" }],
+  "contributes": { "commands": [{ "id": "dsh.conductor", "title": "Conductor", "description": "Direct the background Host and inspect task execution" }] },
+  "subscriptions": [],
+  "license": "MIT",
+  "source": { "repository": "https://github.com/MindednessKind/dsh-conductor" }
+}

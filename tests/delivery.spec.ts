@@ -40,7 +40,7 @@ it.each(['queue', 'steer'] as const)('delivers %s as an orchestrator relay, dedu
   expect(target).toHaveBeenCalledOnce()
   const message = target.mock.calls[0]![0]
   expect(message.role).toBe('user')
-  expect(message.source).toEqual({ kind: 'dsh-superagent', form: 'relay' })
+  expect(message.source).toEqual({ kind: 'dsh-conductor', form: 'relay' })
   expect(Object.isFrozen(message)).toBe(true)
   await f.send('request', mode)
   f.consume(message)
@@ -56,7 +56,7 @@ it.each(['queue', 'steer'] as const)('delivers %s as an orchestrator relay, dedu
 
 it.each(['pending', 'consumed', 'live'] as const)('recognizes legacy plugin identity in %s input without rewriting it', async location => {
   // Bypass TypeScript's current source union to construct the retired serialized shape.
-  const old: UserMessage = JSON.parse(JSON.stringify({ id: 'dsh-superagent:request', role: 'user', content: [], source: { kind: 'plugin', plugin: 'dsh-superagent', form: 'relay' } }))
+  const old: UserMessage = JSON.parse(JSON.stringify({ id: 'dsh-conductor:request', role: 'user', content: [], source: { kind: 'plugin', plugin: 'dsh-conductor', form: 'relay' } }))
   const before = JSON.stringify(old)
   const f = fixture(location === 'consumed' ? [old] : [])
   if (location === 'pending') f.inbox.nextTurn.push(old)
@@ -69,7 +69,7 @@ it.each(['pending', 'consumed', 'live'] as const)('recognizes legacy plugin iden
 })
 
 it.each(['another-plugin', undefined])('does not treat a legacy plugin source %s as this producer', async plugin => {
-  const old: UserMessage = JSON.parse(JSON.stringify({ id: 'dsh-superagent:request', role: 'user', content: [], source: { kind: 'plugin', plugin, form: 'relay' } }))
+  const old: UserMessage = JSON.parse(JSON.stringify({ id: 'dsh-conductor:request', role: 'user', content: [], source: { kind: 'plugin', plugin, form: 'relay' } }))
   const f = fixture([old])
   await f.send()
   expect(f.steer).toHaveBeenCalledOnce()
@@ -125,12 +125,12 @@ it('does not dispatch when cancelled or disposed during history loading', async 
   expect(disposed.steer).not.toHaveBeenCalled()
 })
 
-it('injects a notice once, as dsh-superagent\'s notice with its summary, without waking the agent', async () => {
+it('injects a notice once, as dsh-conductor\'s notice with its summary, without waking the agent', async () => {
   const f = fixture()
   await f.inject('notice:settings', 'Settings saved')
   await f.inject('notice:settings', 'Settings saved')
   expect(f.injected).toHaveBeenCalledOnce()
-  expect(f.injected.mock.calls[0]![0]).toMatchObject({ role: 'user', source: { kind: 'dsh-superagent', form: 'notice', summary: 'Settings saved' } })
+  expect(f.injected.mock.calls[0]![0]).toMatchObject({ role: 'user', source: { kind: 'dsh-conductor', form: 'notice', summary: 'Settings saved' } })
   expect([f.steer, f.followup].map(spy => spy.mock.calls.length)).toEqual([0, 0])
 })
 

@@ -57,7 +57,7 @@ it('shows a built-in skill with the CLI notes in the full prompt, editable as a 
   }
   await type(field<HTMLInputElement>(zh.promptAddSkill), 'testing')
   await click(zh.promptAddSkillAction)
-  expect(all('.dt-nav-item').map(item => item.textContent)).toContain('dsh-superagent-testing')
+  expect(all('.dt-nav-item').map(item => item.textContent)).toContain('dsh-conductor-testing')
 })
 
 it('loads all defaults into the draft from the history without saving them', async () => {

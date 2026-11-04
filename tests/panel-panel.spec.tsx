@@ -57,7 +57,7 @@ it('shows domain terms in the interface language only and lists both languages i
   expect([...dialog.querySelectorAll('tr')].find(item => item.textContent?.startsWith('Main Session'))!.textContent).toContain('prompts call it the orchestrator')
 })
 
-it('says dsh-superagent is not answering when its routes are gone, as while it restarts', async () => {
+it('says dsh-conductor is not answering when its routes are gone, as while it restarts', async () => {
   server.down = true
   await mount()
   expect(text()).toContain(zh.hostNotRunning)

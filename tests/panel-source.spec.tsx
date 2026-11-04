@@ -93,7 +93,7 @@ it('renders each Source\'s settings from its kind\'s fields and saves one Source
   expect(server.revisions['source:github']).toBe(6)
 })
 
-it('shows the account each CLI signs in as, and keeps a saved CLI on screen while dsh-superagent restarts', async () => {
+it('shows the account each CLI signs in as, and keeps a saved CLI on screen while dsh-conductor restarts', async () => {
   await mount()
   await click(tab(zh['tab.settings']))
   const github = all('.dt-card')[1]!
@@ -110,14 +110,14 @@ it('shows the account each CLI signs in as, and keeps a saved CLI on screen whil
   expect(labels()).toEqual(['监听的仓库', '智能体的 GitHub CLI', '轮询间隔 / 秒', '连续失败几次后报告异常'])
   expect(all('.dt-card')[0]!.textContent).toContain('当前机器人 Widgets Bot')
   await type(field<HTMLInputElement>('智能体的 GitHub CLI'), '/opt/bin/gh-agent')
-  expect(github.textContent).toContain('保存会重启 dsh-superagent：2 个进行中的派工会中断，并带恢复说明重新开始。')
+  expect(github.textContent).toContain('保存会重启 dsh-conductor：2 个进行中的派工会中断，并带恢复说明重新开始。')
   await act(async () => { github.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }); await settle()
   expect(server.settings.sources.github!.config).toMatchObject({ cli: '/opt/bin/gh-agent' })
   expect(text()).toContain(zh.savedRestarting)
-  // The saved value stays, and the card's fields are disabled, until the saved revision returns with the restarted dsh-superagent.
+  // The saved value stays, and the card's fields are disabled, until the saved revision returns with the restarted dsh-conductor.
   expect(field<HTMLInputElement>('智能体的 GitHub CLI').value).toBe('/opt/bin/gh-agent')
   expect(field('智能体的 GitHub CLI').matches(':disabled')).toBe(true)
-  expect(sessionStorage.getItem('dsh-superagent/draft/master/source:github')).toBeNull()
+  expect(sessionStorage.getItem('dsh-conductor/draft/master/source:github')).toBeNull()
 })
 
 it('points a setup problem at the settings that fix it', async () => {
@@ -140,7 +140,7 @@ it('points a setup problem at the settings that fix it', async () => {
   delete (Element.prototype as Partial<Element>).scrollIntoView
   await click(find(zh['settingsGroup.deployment'], '.dt-settings-link'))
   expect(text()).toContain('部署检查未通过：没有设置智能体的 GitHub CLI。')
-  // After a fix outside dsh-superagent, a check runs setup again.
+  // After a fix outside dsh-conductor, a check runs setup again.
   await click(zh.setupCheck)
   expect(server.requests.filter(request => request.path === 'setup/check')).toEqual([{ path: 'setup/check', method: 'POST' }])
   expect(text()).toContain(zh.setupChecking)
@@ -149,10 +149,10 @@ it('points a setup problem at the settings that fix it', async () => {
   await click(zh['tab.overview'])
   await click(find(zh.problemSetup, 'button, a, [role="button"]'))
   expect(document.querySelector('.dt-settings-link[aria-current="page"]')?.textContent).toBe(zh['settingsGroup.deployment'])
-  expect(text()).toContain('部署检查未通过：git 没有读取 dsh-superagent 为 github.com 写的凭据配置')
+  expect(text()).toContain('部署检查未通过：git 没有读取 dsh-conductor 为 github.com 写的凭据配置')
 })
 
-it('shows a failed Feishu bot check as a problem of the Feishu Source only, with a check after a fix outside dsh-superagent', async () => {
+it('shows a failed Feishu bot check as a problem of the Feishu Source only, with a check after a fix outside dsh-conductor', async () => {
   server.setup = { ...server.setup, feishuProblem: problemOf('feishuBotNotReady', { app: 'cli_bot', status: 'missing' }),
     accounts: { ...server.setup.accounts!, feishu: null } }
   await mount()
@@ -161,9 +161,9 @@ it('shows a failed Feishu bot check as a problem of the Feishu Source only, with
   await click(find(zh.problemSetupFeishu, 'button, a, [role="button"]'))
   const feishu = all('.dt-card')[0]!
   expect(feishu.textContent).toContain('部署检查未通过：应用 cli_bot 的机器人身份状态是 missing；用 lark-cli 配置应用密钥。')
-  // dsh-superagent runs meanwhile, so checking again asks first: the restart interrupts running Executor Sessions.
+  // dsh-conductor runs meanwhile, so checking again asks first: the restart interrupts running Executor Sessions.
   await click([...feishu.querySelectorAll('button')].find(button => button.textContent === '重新检查')!)
-  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('重新检查会重启 dsh-superagent：2 个进行中的派工会中断')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('重新检查会重启 dsh-conductor：2 个进行中的派工会中断')
   expect(server.requests.some(request => request.path === 'setup/check')).toBe(false)
   await click(zh.confirm)
   expect(server.requests.some(request => request.path === 'setup/check')).toBe(true)
@@ -179,7 +179,7 @@ it('leaves Feishu out of a GitHub-only deployment', async () => {
   await mount()
   await click(tab(zh.promptViewFull))
   expect([...field<HTMLSelectElement>(zh.promptPreviewTarget).options].map(option => option.textContent)).toEqual(['主 Session',
-    '执行器 Session', 'dsh-superagent-github'])
+    '执行器 Session', 'dsh-conductor-github'])
 })
 
 it('shows the Sources waiting for the deployment check, and the problem on the Source that fixes it, with its link', async () => {
@@ -265,7 +265,7 @@ it('takes no space for messages that were all sent', async () => {
   expect(text()).not.toContain(zh.sourceDroppedTitle)
 })
 
-it('reads the settings again as soon as dsh-superagent answers after a save restarted it', async () => {
+it('reads the settings again as soon as dsh-conductor answers after a save restarted it', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   onTestFinished(() => { vi.useRealTimers() })
   at({ page: 'settings', query: { group: 'source' } })
@@ -274,7 +274,7 @@ it('reads the settings again as soon as dsh-superagent answers after a save rest
   const github = all('.dt-card')[1]!
   await act(async () => { github.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }); await settle()
   expect(field('智能体的 GitHub CLI').matches(':disabled')).toBe(true)
-  // dsh-superagent restarts: DSH answers with empty 404s, then it answers again.
+  // dsh-conductor restarts: DSH answers with empty 404s, then it answers again.
   server.down = true
   await act(async () => { await vi.advanceTimersByTimeAsync(1000) }); await settle()
   server.down = false

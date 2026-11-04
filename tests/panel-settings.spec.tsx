@@ -36,7 +36,7 @@ it('saves the Eval block on the Policy settings and the Executor with its execut
   await click(find(zh['promptPart.runtime/work'], '.dt-settings-link'))
   await type(field<HTMLInputElement>(zh.maxWorkers), '5')
   // An empty root uses the default directory, which the field names instead of looking set.
-  expect(field<HTMLInputElement>(zh.executionDirectory).closest('.dt-field')!.querySelector('small')?.textContent).toBe('留空时用 /srv/dsh-superagent/work')
+  expect(field<HTMLInputElement>(zh.executionDirectory).closest('.dt-field')!.querySelector('small')?.textContent).toBe('留空时用 /srv/dsh-conductor/work')
   await type(field<HTMLInputElement>(zh.executionDirectory), '/srv/work')
   // A variable picked from the list goes where the caret is in the prepare command.
   const prepare = field<HTMLTextAreaElement>(zh.prepareCommand)
@@ -104,7 +104,7 @@ it('shows save and discard only while a settings block has edits, at the end of 
   const github = all('.dt-card').find(card => card.querySelector('.dt-card-title')?.textContent === 'GitHub')!
   await type(field<HTMLInputElement>('智能体的 GitHub CLI'), 'gh-other')
   expect(github.lastElementChild!.classList.contains('dt-savebar')).toBe(true)
-  // The agent CLI is read by setup, so the bar warns that saving restarts dsh-superagent and interrupts running work.
+  // The agent CLI is read by setup, so the bar warns that saving restarts dsh-conductor and interrupts running work.
   expect(github.lastElementChild!.textContent).toContain('2 个进行中的派工会中断')
 })
 

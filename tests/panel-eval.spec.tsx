@@ -54,7 +54,7 @@ it('keeps a Policy draft across remounts, and merges another save into it sender
   expect(server.settings.policy.sources.feishu!.allowed).toEqual([{ id: 'ou_alice', name: 'Alice' }, { id: 'ou_newperson', name: '新同事' },
     { id: 'ou_bob', name: 'Bob' }])
   expect(server.settings.policy.rules.map(rule => rule.name)).toEqual(['文案'])
-  expect(sessionStorage.getItem('dsh-superagent/draft/master/policy')).toBeNull()
+  expect(sessionStorage.getItem('dsh-conductor/draft/master/policy')).toBeNull()
 })
 
 it('keeps the Policy to its rules and each Source\'s part, in that Source\'s own identities', async () => {

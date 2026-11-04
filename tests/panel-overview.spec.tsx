@@ -106,7 +106,7 @@ it('counts the messages not sent in the last day, linking to the Source status, 
   expect(tab(zh['tab.source'])?.getAttribute('aria-selected')).toBe('true')
 })
 
-it('names a failing part of dsh-superagent itself by its label', async () => {
+it('names a failing part of dsh-conductor itself by its label', async () => {
   server.health = { launch: { state: 'error', detail: 'spawn failed' }, relay: { state: 'ready', detail: 'Nothing waiting' } }
   await mount()
   expect(all('.dt-cards .dt-att-what').map(item => item.textContent)).toContain(zh.problemRuntime.replace('{name}', zh['health.launch']))
@@ -132,7 +132,7 @@ it('shows the overview in English', async () => {
     en.flowAcceptedLabel, en.executingLabel, en.queuedLabel, en.idleLabel])
 })
 
-it('lists the unavailable Evals one by one, without the health entry that counts them as a failure of dsh-superagent', async () => {
+it('lists the unavailable Evals one by one, without the health entry that counts them as a failure of dsh-conductor', async () => {
   server.health.evals = { state: 'error', detail: '1 Eval(s) unavailable in the last hour without a later judgement' }
   await mount()
   expect(all('.dt-cards .dt-att-what').map(item => item.textContent)).toEqual(['飞书 来源异常', '评估未完成：这个文案好奇怪'])

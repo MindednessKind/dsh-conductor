@@ -1,0 +1,67 @@
+# Host services needed by a headless dsh-base profile. Yield to Web's own rows.
+- insert:
+    - id: conductor-connection
+      name: '@deepseek-ai/dsh-client-connection'
+      disabled: !!js "[...ctx.loader.entries()].some(e => e.options.id !== 'conductor-connection' && e.options.name === '@deepseek-ai/dsh-client-connection' && !e.disabled)"
+    - id: conductor-workspace
+      name: '@deepseek-ai/dsh-workspace'
+      disabled: !!js "[...ctx.loader.entries()].some(e => e.options.id !== 'conductor-workspace' && e.options.name === '@deepseek-ai/dsh-workspace' && !e.disabled)"
+    - id: conductor-session-controller
+      name: '@deepseek-ai/dsh-api-session-controller'
+      disabled: !!js "[...ctx.loader.entries()].some(e => e.options.id !== 'conductor-session-controller' && e.options.name === '@deepseek-ai/dsh-api-session-controller' && !e.disabled)"
+    - id: conductor-file-uploads
+      name: '@deepseek-ai/dsh-client-file-upload'
+      disabled: !!js "[...ctx.loader.entries()].some(e => e.options.id !== 'conductor-file-uploads' && e.options.name === '@deepseek-ai/dsh-client-file-upload' && !e.disabled)"
+    - id: conductor-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      disabled: !!js "[...ctx.loader.entries()].some(e => e.options.id !== 'conductor-preset-registry' && e.options.name === '@deepseek-ai/dsh-agent-preset-registry' && !e.disabled)"
+      config:
+        default: dsh-conductor-router
+
+# Worker/Host presets own model-facing capabilities; keep shared registries on the host.
+- id: tool-plugin-manager
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: command-goal
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: plan-mode
+  disabled: true
+- id: compaction-basic
+  disabled: true
+- id: command-compact
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: workflow-ptc
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-web
+  disabled: true

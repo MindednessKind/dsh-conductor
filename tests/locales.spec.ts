@@ -24,8 +24,8 @@ it('words a reason by its code with its values, each of a batch, and words a per
   expect(reasonLabel(t, 'The button is already blue')).toBe('The button is already blue')
 })
 
-it('names every health entry of dsh-superagent itself, which the overview shows when it fails', () => {
-  // Each entry by its writer: dsh-superagent, the model budget retries, every kind of the effect queue, Channel messages, the
+it('names every health entry of dsh-conductor itself, which the overview shows when it fails', () => {
+  // Each entry by its writer: dsh-conductor, the model budget retries, every kind of the effect queue, Channel messages, the
   // Executor and the unavailable Evals of the last hour.
   const entries = { runtime: 0, models: 0, reply: 0, worker: 0, assessment: 0, launch: 0, delivery: 0, relay: 0,
     notice: 0, evals: 0 } satisfies Record<EffectKind | 'runtime' | 'models' | 'reply' | 'worker' | 'evals', 0>

@@ -50,8 +50,8 @@ export const RESOURCES: readonly { name: string; holds: string; executor?: true 
   { name: 'prompt-preview/<id>', holds: 'a composed prompt that orchestrator_prompts_save previewed' },
   { name: 'models', holds: 'model providers, the DSH default and each role\'s model' },
   { name: 'models/<provider>', holds: 'one provider\'s models' },
-  { name: 'feishu/<trigger-id>/…', holds: 'a Feishu original, as the dsh-superagent-feishu skill describes', executor: true },
-  { name: 'github/…', holds: 'a GitHub original, as the dsh-superagent-github skill describes', executor: true },
+  { name: 'feishu/<trigger-id>/…', holds: 'a Feishu original, as the dsh-conductor-feishu skill describes', executor: true },
+  { name: 'github/…', holds: 'a GitHub original, as the dsh-conductor-github skill describes', executor: true },
 ]
 export const resourceGrammar = (executor: boolean): string => RESOURCES.filter(resource => !executor || resource.executor)
   .map(resource => `${resource.name}: ${resource.holds}`).join('; ')
@@ -166,8 +166,8 @@ const ROUTES: readonly Route[] = [
     return { revision: status.revision, read: `prompts/${current.revision}`, notification_pending: status.notificationPending,
       ...changed.length ? { default_changed: changed } : {}, ...removed.length ? { removed_parts: removed } : {},
       sessions: status.sessions.map(session => ({ session_id: session.sessionId, revision: session.revision })),
-      skills: { built_in: skills.filter(name => !(name in current.config.skills)).map(name => `dsh-superagent-${name}`),
-        team: Object.keys(current.config.skills).map(name => `dsh-superagent-${name}`) },
+      skills: { built_in: skills.filter(name => !(name in current.config.skills)).map(name => `dsh-conductor-${name}`),
+        team: Object.keys(current.config.skills).map(name => `dsh-conductor-${name}`) },
       items: history.revisions.map(({ previousRevision, savedAt, ...version }) =>
         ({ ...version, previous_revision: previousRevision, saved_at: savedAt })),
       next_offset: history.next_offset }

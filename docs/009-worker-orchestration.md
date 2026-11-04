@@ -14,7 +14,7 @@ The Host tools are `task_submit`, `task_list`, `task_add`, `task_update`, `task_
 
 ## Configuration
 
-Create `<stateDir>/workers.json` from [the combined example](../examples/workers.json), [Coding roles](../examples/workers.coding.json), or [security analysis roles](../examples/workers.security.json). The file is validated and loaded once when Runtime starts. Restart dsh-superagent after editing it. Unknown fields, duplicate IDs or tool grants, invalid Worker names and invalid paths prevent startup.
+Create `<stateDir>/workers.json` from [the combined example](../examples/workers.json), [Coding roles](../examples/workers.coding.json), or [security analysis roles](../examples/workers.security.json). The file is validated and loaded once when Runtime starts. Restart dsh-conductor after editing it. Unknown fields, duplicate IDs or tool grants, invalid Worker names and invalid paths prevent startup.
 
 The top-level `version` is currently `1`; `profiles` contains one entry per Worker. The catalog is deliberately static at runtime, so a profile cannot increase its own permissions through task instructions.
 
@@ -46,4 +46,4 @@ Task Worker Sessions use a domain-neutral DSH preset without child-agent delegat
 
 The DSH `permissionPreset` controls DSH permission behavior. It does not isolate the process from the operator's OS account, filesystem, programs or network. In particular, shell tools can still run programs and access anything permitted to that account. Tool, MCP and Skill allowlists are not a substitute for OS/container isolation. Use a dedicated OS account or an external sandbox for untrusted or security-testing work, and configure an explicitly authorized target scope in the task.
 
-`workspaceRoot` constrains the selected DSH workspace path. It is not a security sandbox and does not constrain programs launched by a Worker. Task graph state has no management panel yet; use the Host Session's task tools to inspect and update it.
+`workspaceRoot` constrains the selected DSH workspace path. It is not a security sandbox and does not constrain programs launched by a Worker. The legacy Web panel manages Source Tickets; general task graphs are available through the Host tools and the Conductor API/TUI.

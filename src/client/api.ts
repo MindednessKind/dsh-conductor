@@ -10,7 +10,7 @@ export interface UserFailure { code: UserErrorCode; values: Record<string, strin
 /**
  * Represents a failed management API request with a localized message and structured diagnostic details.
  * Thrown by API callers and inspected by UI views and draft state to distinguish validation issues, missing records,
- * and unreachable hosts (`details.unreachable` is set when `dsh-superagent` did not answer at all, such as during a restart,
+ * and unreachable hosts (`details.unreachable` is set when `dsh-conductor` did not answer at all, such as during a restart,
  * in which case a 404 does not mean a record is missing).
  */
 export class ApiError extends Error {
@@ -46,7 +46,7 @@ async function api<T>(messages: ApiMessages, path: string, method: string, body?
       values?: Record<string, string> }
     const issues = Array.isArray(failure.issues) ? failure.issues as { path: string; message: string }[] : []
     const user = isUserError(failure.code) ? { code: failure.code, values: failure.values ?? {} } : undefined
-    // dsh-superagent always responds with a body; an empty 404 comes from the DSH web server when dsh-superagent routes are unmounted during startup or restart.
+    // dsh-conductor always responds with a body; an empty 404 comes from the DSH web server when dsh-conductor routes are unmounted during startup or restart.
     const { status } = response
     const message = failure.setup ? messages.setup(failure.setup) : user ? messages.user(user)
       : typeof failure.error === 'string' ? failure.error : !text && status === 404 ? messages.notRunning

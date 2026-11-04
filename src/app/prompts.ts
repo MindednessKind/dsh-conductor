@@ -10,14 +10,14 @@ import type { Store } from './store.ts'
 import { Versions } from './versions.ts'
 import { KV } from '../kv.ts'
 
-/** Prompt sections the team writes; the built-in parts follow dsh-superagent's text until the team overrides them. */
+/** Prompt sections the team writes; the built-in parts follow dsh-conductor's text until the team overrides them. */
 export const TEAM_SECTIONS = ['communication', 'scope', 'delivery'] as const
 export type TeamSection = typeof TEAM_SECTIONS[number]
 /** Markdown headings for each team section; fixed prompt sections refer to them by these exact names. */
 const TEAM_HEADINGS: Record<TeamSection, string> = { communication: 'Communication', scope: 'Ticket scope', delivery: 'Delivery requirements' }
 export const SKILL_NAME = /^[a-z][a-z0-9-]*$/
 /** Prefix prepended to skill names when registering them in DSH Sessions. */
-export const SKILL_PREFIX = 'dsh-superagent-'
+export const SKILL_PREFIX = 'dsh-conductor-'
 const SkillNameSchema = z.string().regex(SKILL_NAME).refine(name => !(Object.keys(sourceSkills) as string[]).includes(name),
   'This name belongs to a built-in skill')
 /** The built-in parts a team may override, by key: both roles' parts, the Source skills, and the generated parts' templates. */
@@ -82,7 +82,7 @@ const fill = (template: string, values: Record<string, string>): string =>
 /** The execution environment part: its template with the variables, or, while setup waits, that it waits. */
 export function environmentSection(config: PromptConfig, variables: Variable[] | undefined): string {
   return variables ? fill(builtIn(config, 'runtime/environment'), { variables: environmentLines(variables) })
-    : 'Execution environment: dsh-superagent is waiting for setup; the management panel names what is missing.'
+    : 'Execution environment: dsh-conductor is waiting for setup; the management panel names what is missing.'
 }
 /**
  * The main Session's Policy section: the Policy version and accept mode it judges proactive candidates by, and every enabled
@@ -197,7 +197,7 @@ export class Prompts {
     const environment = environmentSection(config, this.environment()), policy = policySection(this.store.settings(), config)
     return { orchestrator: composePrompt(config, 'orchestrator', environment, policy), worker: composePrompt(config, 'worker', environment),
       parts: { orchestrator: promptParts(config, 'orchestrator', environment, policy), worker: promptParts(config, 'worker', environment) },
-      skills: Object.fromEntries(this.skills(config)), scope: 'Team sections, skills, and overrides of built-in parts, which follow their built-in text until overridden. Workers additionally inherit the host prompt and repository AGENTS.md. Prompt text changes what the agents are told, not what dsh-superagent allows: tool permissions, the gate and account wrappers stay.' }
+      skills: Object.fromEntries(this.skills(config)), scope: 'Team sections, skills, and overrides of built-in parts, which follow their built-in text until overridden. Workers additionally inherit the host prompt and repository AGENTS.md. Prompt text changes what the agents are told, not what dsh-conductor allows: tool permissions, the gate and account wrappers stay.' }
   }
   save(value: unknown, baseRevision: number, source: SettingsOrigin): PromptVersion {
     const config = this.validate(value)

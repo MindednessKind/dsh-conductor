@@ -1,14 +1,17 @@
-# dsh-superagent bundle layer: inserts the plugins without configuration, and the agent presets its Sessions run under. The
-# profile supplies the `dsh-superagent` entry's stateDir (see docs/006-deployment.md and examples/profile.cordis.patch.yml); the plugin
+# dsh-conductor bundle layer: inserts the plugins without configuration, and the agent presets its Sessions run under. The
+# profile supplies the `dsh-conductor` entry's stateDir (see docs/006-deployment.md and examples/profile.cordis.patch.yml); the plugin
 # refuses to start without stateDir.
 - insert:
-    - id: dsh-superagent
-      name: dsh-superagent
-    - id: dsh-superagent-github
-      name: dsh-superagent/github-watch
+    - id: dsh-conductor
+      name: dsh-conductor
+    - id: dsh-conductor-daemon
+      name: dsh-conductor/daemon
+      disabled: true
+    - id: dsh-conductor-github
+      name: dsh-conductor/github-watch
     # Optional Feishu Source; requires configuring a bot CLI after enabling.
-    - id: dsh-superagent-feishu
-      name: dsh-superagent/feishu-watch
+    - id: dsh-conductor-feishu
+      name: dsh-conductor/feishu-watch
       disabled: true
     # The agent preset of every Executor Session (WORKER_PRESET in src/app/sessions.ts); the main Session has its own, below.
     # It is DSH's `standard` preset with only what a worker needs, and a shell whose foreground command moves to a background job
@@ -17,12 +20,12 @@
     # and forked subagents, which would run under this preset; spawned subagents run under `standard`, whose shell moves a
     # command to a background job only after 60 seconds, as a subagent's jobs are killed when it ends. A preset row has no
     # setting that hides it from the preset picker, so its name and description say whom it is for.
-    - id: dsh-superagent-worker-preset
+    - id: dsh-conductor-worker-preset
       name: '@deepseek-ai/dsh-agent-preset'
       config:
-        id: dsh-superagent-worker
-        name: dsh-superagent 执行器
-        description: dsh-superagent 的执行器 Session 专用，不供手动选择。前台命令超 5 秒转入后台，只含执行工作所需的工具。
+        id: dsh-conductor-worker
+        name: dsh-conductor 执行器
+        description: dsh-conductor 的执行器 Session 专用，不供手动选择。前台命令超 5 秒转入后台，只含执行工作所需的工具。
         order: 90
         plugins:
           - id: persona
@@ -120,12 +123,12 @@
               searchTimeoutMs: 60000
     # General task Workers need configurable tools, but must not inherit Ticket worker delegation or global Skill access.
     # Their exact tool and MCP grants are applied by Sessions from workers.json; Skills go through task_skill only.
-    - id: dsh-superagent-task-worker-preset
+    - id: dsh-conductor-task-worker-preset
       name: '@deepseek-ai/dsh-agent-preset'
       config:
-        id: dsh-superagent-task-worker
-        name: dsh-superagent 通用任务 Worker
-        description: dsh-superagent 通用任务专用，不供手动选择。工具、MCP 和 Skill 按 workers.json 配置逐项授权。
+        id: dsh-conductor-task-worker
+        name: dsh-conductor 通用任务 Worker
+        description: dsh-conductor 通用任务专用，不供手动选择。工具、MCP 和 Skill 按 workers.json 配置逐项授权。
         order: 91
         plugins:
           - id: agent-instructions
@@ -202,12 +205,12 @@
     # only what the main Session uses: no subagents, web, file search or writes, todo list, questions to a person, presenting,
     # plan mode, plugin manager, scheduling, goals or workflows. No persona: the main Session's prompt is complete, so it has
     # no other section.
-    - id: dsh-superagent-router-preset
+    - id: dsh-conductor-router-preset
       name: '@deepseek-ai/dsh-agent-preset'
       config:
-        id: dsh-superagent-router
-        name: dsh-superagent 主 Session
-        description: dsh-superagent 的主 Session 专用，不供手动选择。前台命令和任务等待超 5 秒转入后台，只含路由所需的工具。
+        id: dsh-conductor-router
+        name: dsh-conductor 主 Session
+        description: dsh-conductor 的主 Session 专用，不供手动选择。前台命令和任务等待超 5 秒转入后台，只含路由所需的工具。
         order: 92
         plugins:
           - id: agent-instructions

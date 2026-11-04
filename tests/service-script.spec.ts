@@ -1,4 +1,4 @@
-/** Tests for scripts/dsh-superagent using a temporary checkout path with spaces and stubbed ps, tmux, and dsh binaries. */
+/** Tests for scripts/dsh-conductor using a temporary checkout path with spaces and stubbed ps, tmux, and dsh binaries. */
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync }
   from 'node:fs'
@@ -6,7 +6,10 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it as test } from 'vitest'
+
+// This legacy controller requires ps/tmux and POSIX signals. The Node daemon manager supports Windows.
+const it = test.skipIf(process.platform === 'win32')
 
 let root: string
 let server: Server | undefined
@@ -27,7 +30,7 @@ const started = (...lines: string[]) => writeFileSync(join(root, 'ps-started.txt
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'service script '))
   mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'))
-  copyFileSync(join(import.meta.dirname, '..', 'scripts', 'dsh-superagent'), join(root, 'scripts', 'dsh-superagent'))
+  copyFileSync(join(import.meta.dirname, '..', 'scripts', 'dsh-conductor'), join(root, 'scripts', 'dsh-conductor'))
   processes()
   program('ps', `list='${root}/ps.txt'; [ -f '${root}/launched' ] && [ -f '${root}/ps-started.txt' ] && list='${root}/ps-started.txt'
 want=; while [ $# -gt 0 ]; do [ "$1" = -p ] && want=$2; shift; done
@@ -48,7 +51,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true })
 })
 function run(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise(resolve => execFile('python3', [join(root, 'scripts', 'dsh-superagent'), ...args],
+  return new Promise(resolve => execFile('python3', [join(root, 'scripts', 'dsh-conductor'), ...args],
     { env: { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH}`, DSH_SUPERAGENT_PROFILE: '', DSH_SUPERAGENT_URL: '' },
       timeout: 20_000 },
     (error, stdout, stderr) => resolve({ code: typeof error?.code === 'number' ? error.code : 0, stdout, stderr })))
@@ -68,7 +71,7 @@ const status = async (profile: string, url = 'http://127.0.0.1:9') =>
 
 it('refuses to stop when two processes serve the profile, before it writes the stop marker', async () => {
   processes(service(sleeper()), `${sleeper()} node node /opt/dsh --profile=superagent`)
-  expect(await run('stop')).toMatchObject({ code: 1, stderr: expect.stringContaining('Multiple dsh-superagent processes found') })
+  expect(await run('stop')).toMatchObject({ code: 1, stderr: expect.stringContaining('Multiple dsh-conductor processes found') })
   expect(existsSync(join(control('superagent'), 'manually-stopped'))).toBe(false)
 })
 it('keeps a stop per profile', async () => {
@@ -96,19 +99,19 @@ it('records the service PID at start, and still refuses a second instance the sc
   // The checkout's path, which has a space, is one argument, and the log path inside it is quoted for the shell.
   const checkout = realpathSync(root)
   expect(tmux).toEqual(expect.arrayContaining(['-P', '-F', '#{pane_pid}', '-c', checkout]))
-  const log = new RegExp(`>> '${checkout}/\\.artifacts/dsh-superagent-superagent-\\d{8}-\\d{6}-\\d+\\.log' 2>&1$`)
+  const log = new RegExp(`>> '${checkout}/\\.artifacts/dsh-conductor-superagent-\\d{8}-\\d{6}-\\d+\\.log' 2>&1$`)
   expect(tmux.find(word => word.startsWith('umask 077; exec '))).toMatch(log)
   const second = sleeper()
   started(service(pid), `${second} node node /opt/dsh --profile superagent`)
   const again = await run('start', '--url', url, '--timeout', '10')
-  expect(again).toMatchObject({ code: 1, stderr: expect.stringContaining('Multiple dsh-superagent processes') })
+  expect(again).toMatchObject({ code: 1, stderr: expect.stringContaining('Multiple dsh-conductor processes') })
   expect(await status('superagent')).toMatchObject({ pids: [pid, second] })
 }, 20_000)
 it('waits only for the process it stopped', async () => {
   const pid = sleeper()
   // Another instance shows up once the stopped one ended.
   processes(service(pid), `after:${pid} ${sleeper()} node node /opt/dsh --profile superagent`)
-  expect(await run('stop', '--stop-timeout', '5')).toMatchObject({ code: 0, stdout: expect.stringContaining('dsh-superagent stopped') })
+  expect(await run('stop', '--stop-timeout', '5')).toMatchObject({ code: 0, stdout: expect.stringContaining('dsh-conductor stopped') })
 }, 20_000)
 it('keeps only the newest logs it wrote for the profile', async () => {
   const url = await answering()
@@ -117,20 +120,20 @@ it('keeps only the newest logs it wrote for the profile', async () => {
   started(service(pid))
   mkdirSync(join(root, '.artifacts'), { recursive: true })
   for (const profile of ['superagent', 'other']) for (let index = 0; index < 25; index++) {
-    const log = join(root, '.artifacts', `dsh-superagent-${profile}-20260901-0000${String(index).padStart(2, '0')}-1.log`)
+    const log = join(root, '.artifacts', `dsh-conductor-${profile}-20260901-0000${String(index).padStart(2, '0')}-1.log`)
     writeFileSync(log, '')
     utimesSync(log, 1_700_000_000 + index, 1_700_000_000 + index)
   }
-  writeFileSync(join(root, '.artifacts', 'dsh-superagent-20260901-000000-1.log'), '')
+  writeFileSync(join(root, '.artifacts', 'dsh-conductor-20260901-000000-1.log'), '')
   expect(await run('start', '--url', url, '--timeout', '10')).toMatchObject({ code: 0 })
   const logs = readdirSync(join(root, '.artifacts'))
-  const own = logs.filter(name => name.startsWith('dsh-superagent-superagent-')).sort()
+  const own = logs.filter(name => name.startsWith('dsh-conductor-superagent-')).sort()
   expect(own).toHaveLength(20)
   // The oldest went; the new one stays, with the newest earlier ones. Another profile's logs and older names stay.
-  expect(own).not.toContain('dsh-superagent-superagent-20260901-000000-1.log')
-  expect(own.filter(name => !name.startsWith('dsh-superagent-superagent-20260901-'))).toHaveLength(1)
-  expect(logs.filter(name => name.startsWith('dsh-superagent-other-'))).toHaveLength(25)
-  expect(logs).toContain('dsh-superagent-20260901-000000-1.log')
+  expect(own).not.toContain('dsh-conductor-superagent-20260901-000000-1.log')
+  expect(own.filter(name => !name.startsWith('dsh-conductor-superagent-20260901-'))).toHaveLength(1)
+  expect(logs.filter(name => name.startsWith('dsh-conductor-other-'))).toHaveLength(25)
+  expect(logs).toContain('dsh-conductor-20260901-000000-1.log')
 }, 20_000)
 it('reports a service whose Feishu bot setup could not check as running, and reads an answer with keys missing', async () => {
   processes(service(sleeper()))
@@ -168,7 +171,7 @@ it('restarts the service, and a restart whose graceful stop timed out does not k
   writeFileSync(join(root, 'pane'), `${pid}\n`)
   started(service(pid))
   const restarted = await run('restart', '--url', url, '--timeout', '10', '--stop-timeout', '5')
-  expect(restarted).toMatchObject({ code: 0, stdout: expect.stringContaining('dsh-superagent stopped.') })
+  expect(restarted).toMatchObject({ code: 0, stdout: expect.stringContaining('dsh-conductor stopped.') })
   expect(restarted.stdout).not.toContain('Automatic recovery is paused')
   expect(existsSync(join(control('superagent'), 'manually-stopped'))).toBe(false)
   expect(readFileSync(join(control('superagent'), 'service.pid'), 'utf8')).toBe(`${pid}\n`)
@@ -190,7 +193,7 @@ time.sleep(30)`], { stdio: 'ignore' })
   sleepers.push(holder)
   while (!existsSync(held)) await new Promise(resolve => setTimeout(resolve, 50))
   expect(await run('status')).toMatchObject({ code: 1,
-    stderr: expect.stringContaining('Another dsh-superagent control operation is in progress') })
+    stderr: expect.stringContaining('Another dsh-conductor control operation is in progress') })
 }, 20_000)
 it('refuses to start a service while no process runs it but something answers at its URL', async () => {
   const url = await answering(READY, true)
@@ -208,7 +211,7 @@ it('starts the service in a new window of the profile\'s tmux session when the s
   started(service(pid))
   expect(await run('start', '--url', url, '--timeout', '10')).toMatchObject({ code: 0 })
   const calls = readFileSync(join(root, 'tmux.log'), 'utf8').split('---\n').map(call => call.split('\n'))
-  expect(calls.find(call => call[0] === 'new-window')).toEqual(expect.arrayContaining(['-t', '=dsh-superagent:']))
+  expect(calls.find(call => call[0] === 'new-window')).toEqual(expect.arrayContaining(['-t', '=dsh-conductor:']))
   expect(calls.some(call => call[0] === 'new-session')).toBe(false)
 }, 20_000)
 it('exits 1 when the started service does not answer in time, and leaves its process running', async () => {

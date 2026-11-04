@@ -73,7 +73,7 @@ describe('Source registry', () => {
     expect(await sources.send(message('quiet'), commands)).toBe('gone')
     expect(sources.threadContext({ ...trigger, source: 'quiet' })).toBeUndefined()
   })
-  it('refuses a kind that declares a health entry another kind or dsh-superagent itself reports, and gives up its entries at unregister', () => {
+  it('refuses a kind that declares a health entry another kind or dsh-conductor itself reports, and gives up its entries at unregister', () => {
     const board = new HealthBoard()
     // Pre-claim built-in health entries; sync:* entries are reserved for settings sync.
     for (const name of ['runtime', 'reply']) board.claim(name)

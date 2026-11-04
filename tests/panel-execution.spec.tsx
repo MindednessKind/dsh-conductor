@@ -156,11 +156,11 @@ it('says why an Input was not delivered on its Ticket\'s page, in either languag
   expect(text()).toContain(en.inputRetryHint)
 })
 
-it('tells a Ticket or Thread that does not exist from a dsh-superagent that is not answering', async () => {
+it('tells a Ticket or Thread that does not exist from a dsh-conductor that is not answering', async () => {
   at({ page: 'execution', id: 't9' })
   await mount()
   expect(text()).toContain(zh.ticketNotFound)
-  // While dsh-superagent restarts, DSH's web server answers every route with an empty 404.
+  // While dsh-conductor restarts, DSH's web server answers every route with an empty 404.
   at({ page: 'execution', id: 't1' })
   server.down = true
   await remount()

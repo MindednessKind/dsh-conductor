@@ -46,7 +46,7 @@ export function parseRoute(value: unknown): Route | undefined {
   }
 }
 
-const ROUTE_KEY = 'dsh-superagent/route'
+const ROUTE_KEY = 'dsh-conductor/route'
 export interface Location { route: Route; stack: Route[]; group?: SettingsGroup | undefined }
 export const lastSettingsGroup = ({ route, group }: Location): SettingsGroup => route.page === 'settings' ? route.query.group
   : group ?? 'source'

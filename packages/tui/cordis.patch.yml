@@ -1,0 +1,6 @@
+- insert:
+    - id: dsh-conductor-tui
+      name: dsh-conductor-tui
+      inject: [commands, tuiScenes, tuiCommandTrees, tuiStatus, tuiPanels]
+      config:
+        stateDir: !!js process.env.DSH_CONDUCTOR_STATE_DIR

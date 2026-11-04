@@ -52,11 +52,11 @@ afterEach(() => { vi.unstubAllGlobals() })
 it('registers a localized main panel, sidebar entry and Plugin Manager row page, and no settings section', () => {
   const { entries, dictionaries, main, nav } = fixture([])
   expect(entries.map(entry => entry.options.name)).toEqual(['main', 'sidebar.panellist', 'plugins.row.config'])
-  expect(entries[2]!.options).toMatchObject({ key: 'dsh-superagent#dsh-superagent', locale: 'dshSuperagent' })
+  expect(entries[2]!.options).toMatchObject({ key: 'dsh-conductor#dsh-conductor', locale: 'dshSuperagent' })
   expect(Object.keys(dictionaries)).toEqual(['dshSuperagent'])
-  expect(main.options).toMatchObject({ key: 'dsh-superagent', locale: 'dshSuperagent' })
-  expect(nav.options).toMatchObject({ id: 'dsh-superagent', order: 10, locale: 'dshSuperagent' })
-  expect(nav.options.label?.()).toBe('Superagent')
+  expect(main.options).toMatchObject({ key: 'dsh-conductor', locale: 'dshSuperagent' })
+  expect(nav.options).toMatchObject({ id: 'dsh-conductor', order: 10, locale: 'dshSuperagent' })
+  expect(nav.options.label?.()).toBe('Conductor')
 })
 
 it('opens a listed Session through the workspace from the main panel', async () => {
@@ -120,7 +120,7 @@ it('polls one request at a time, keeps the data while new dependencies load, and
   vi.useRealTimers()
 })
 
-it('tells a dsh-superagent that does not answer from a record it does not have, and words each failure by what failed', async () => {
+it('tells a dsh-conductor that does not answer from a record it does not have, and words each failure by what failed', async () => {
   const messages = { offline: 'offline', notRunning: 'not running', serverError: (status: number) => `server ${status}`,
     requestFailed: (status: number) => `request ${status}`, setup: () => 'setup', user: ({ code }: { code: string }) => `user ${code}` }
   const call = caller(() => messages)
@@ -133,7 +133,7 @@ it('tells a dsh-superagent that does not answer from a record it does not have, 
   }
   expect(await failure(async () => { throw new TypeError('Failed to fetch') })).toEqual({ message: 'offline', status: 0, missing: false,
     unreachable: true })
-  // DSH's web server answers an empty 404 while dsh-superagent's routes are unregistered.
+  // DSH's web server answers an empty 404 while dsh-conductor's routes are unregistered.
   expect(await failure(async () => new Response(null, { status: 404 }))).toEqual({ message: 'not running', status: 404, missing: false,
     unreachable: true })
   expect(await failure(async () => new Response(null, { status: 502 }))).toEqual({ message: 'server 502', status: 502, missing: false,

@@ -21,21 +21,21 @@ export interface PanelData {
   error: Error | undefined
   reload: () => Promise<void>
   setup: SetupView | undefined
-  /** Executor Sessions in an active turn, which a restart of `dsh-superagent` interrupts. */
+  /** Executor Sessions in an active turn, which a restart of `dsh-conductor` interrupts. */
   running: number
-  /** Incremented each time dsh-superagent recovers from a restart so dependent views refetch. */
+  /** Incremented each time dsh-conductor recovers from a restart so dependent views refetch. */
   restarts: number
 }
 const Panel = createContext<PanelContext | undefined>(undefined)
 const PanelState = createContext<PanelData | undefined>(undefined)
 export function usePanel(): PanelContext {
   const value = useContext(Panel)
-  if (!value) throw new Error('dsh-superagent page rendered outside its panel')
+  if (!value) throw new Error('dsh-conductor page rendered outside its panel')
   return value
 }
 export function usePanelData(): PanelData {
   const value = useContext(PanelState)
-  if (!value) throw new Error('dsh-superagent page rendered outside its panel')
+  if (!value) throw new Error('dsh-conductor page rendered outside its panel')
   return value
 }
 /** Wrap an async action with re-entrancy protection, busy state, optional reload, and error toast reporting. */

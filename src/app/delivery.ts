@@ -7,18 +7,18 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
-    'dsh-superagent': { kind: 'dsh-superagent' } & ContextFormed
+    'dsh-conductor': { kind: 'dsh-conductor' } & ContextFormed
   }
 }
 
 type Seen = { ids: Set<string>; loaded?: Promise<void> }
 /** The id of the message delivered under `requestId`, the same on every retry. */
-export const messageId = (requestId: string) => MessageId(`dsh-superagent:${requestId}`)
+export const messageId = (requestId: string) => MessageId(`dsh-conductor:${requestId}`)
 /** Extracts the idempotency key from current or legacy plugin message sources. */
 function deliveryId(message: UserMessage): string | undefined {
   // Persisted sources may predate the current producer-specific source map.
   const source: { kind: string; plugin?: unknown; rpcId?: unknown } = message.source
-  if (source.kind === 'dsh-superagent' || (source.kind === 'plugin' && source.plugin === 'dsh-superagent')) return message.id
+  if (source.kind === 'dsh-conductor' || (source.kind === 'plugin' && source.plugin === 'dsh-conductor')) return message.id
   // Requests admitted by the former user RPC retain their original attribution.
   if (source.kind === 'user' && 'rpcId' in source && typeof source.rpcId === 'string') return messageId(source.rpcId)
 }
@@ -26,7 +26,7 @@ function deliveryId(message: UserMessage): string | undefined {
 /**
  * Delivers messages to DSH agents at most once per request ID across active and restored Sessions.
  * Tracks delivered message IDs from live Session events, persisted history, and pending inboxes so retries from `Sessions` do not duplicate messages,
- * and marks delivered messages with `dsh-superagent`'s own source (`dsh-superagent`) rather than user RPCs so they are never mistaken for messages written by a person.
+ * and marks delivered messages with `dsh-conductor`'s own source (`dsh-conductor`) rather than user RPCs so they are never mistaken for messages written by a person.
  */
 export class AgentDelivery {
   private readonly seen = new WeakMap<Session, Seen>()
@@ -73,8 +73,8 @@ export class AgentDelivery {
     const id = messageId(requestId)
     const pending = [...agent.inbox.nextTurn, ...agent.inbox.nextStep].some(message => deliveryId(message) === id)
     if (!seen.ids.has(id) && !pending) {
-      const source = typeof mode === 'object' ? { kind: 'dsh-superagent' as const, form: 'notice' as const, summary: mode.inject }
-        : { kind: 'dsh-superagent' as const, form: 'relay' as const }
+      const source = typeof mode === 'object' ? { kind: 'dsh-conductor' as const, form: 'notice' as const, summary: mode.inject }
+        : { kind: 'dsh-conductor' as const, form: 'relay' as const }
       const message = freezeMessage({ id, role: 'user' as const, content: [{ type: 'text' as const, text }], source })
       if (typeof mode === 'object') { agent.inject(message); seen.ids.add(id) }
       else if (mode === 'steer') agent.steer(message)

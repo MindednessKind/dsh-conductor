@@ -29,7 +29,7 @@ export function PromptsPage() {
 function PromptsEditor({ view, reload }: { view: PromptsView; reload: () => Promise<void> }) {
   const { t, call, notify } = usePanel()
   const saved = withOverrides(view.current.config)
-  const draft = useDraft<PromptConfig, PromptNote>({ key: `dsh-superagent/prompts/${view.masterId}`, saved, revision: view.revision,
+  const draft = useDraft<PromptConfig, PromptNote>({ key: `dsh-conductor/prompts/${view.masterId}`, saved, revision: view.revision,
     reload,
     save: async (config, baseRevision) => {
       const result = await call('PUT prompts', { body: { config, baseRevision } })
