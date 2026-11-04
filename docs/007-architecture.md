@@ -26,6 +26,14 @@ flowchart TB
 
 `Runtime` (`src/app/runtime.ts`) constructs the application, supplies dependencies, and owns startup and shutdown. `Engine` constructs its own internal parts. The Executor and Assessor call back into the Engine, so Runtime gives them getters rather than requiring construction in a circular order.
 
+### Task orchestration
+
+The general task path is separate from Source admission and the Ticket Engine. A direct user instruction reaches the main Session's `task_submit` tool, which validates a plan and creates a persistent `TaskGraph`. `TaskRunner` claims ready tasks, enforces each Worker's capacity across all graphs, and starts one DSH Session per attempt. Worker reports transition tasks, unlock dependents and free capacity. The Host can edit work that has not started, append tasks, steer a running Session, retry or cancel work.
+
+`WorkerRegistry` reads `stateDir/workers.json` once at startup. A profile names the Worker, its concurrent task limit, DSH permission preset, allowed tool names, MCP server/tool pairs, exact Skill names, optional model override, prompt additions and workspace root. MCP pairs resolve to DSH's exact `mcp__<serverName>__<tool>` names. Task Worker Sessions use a domain-neutral preset without local delegation or DSH's global Skill tool. Session hooks restrict inherited DSH tools to the profile's exact names, guard every call against that same allowlist, and expose Skills only through the profile-checked `task_skill` tool. Task state is stored in the generic key-value family `task-graph:<id>`; no Source is required to create or run a task graph.
+
+This route currently begins in the Host Session. GitHub and Feishu requests continue through Policy, Source and Ticket admission. The two execution paths coexist; Source messages have not been converted into generic task graphs.
+
 ### Runtime
 
 `Runtime` is the composition root; it contains no domain rules. Its constructor locks the state directory, opens the Store and builds each component. If construction fails, it closes the Store and releases the lock.
@@ -341,6 +349,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/resources.ts` | `RESOURCES` and `readResource`: what `orchestrator_read` reads, for each role |
 | `src/app/tools/tool.ts` | The `Tool` type, `readTool`, the `orchestrator_read` of both roles, and `AcknowledgementSchema` |
 | `src/app/tools/main.ts` | The main Session's tools |
+| `src/app/tools/tasks.ts` | Host task graph tools and Worker report/Skill tools |
 | `src/app/tools/executor.ts` | An Executor Session's tools |
 | `src/app/http.ts` | The `/orchestrator/api` routes: the same-origin check, request limits and one status per kind of failure |
 | `src/app/api.ts` | `Api`, every route with its parameters, query, body and response, and the filters of the lists; it imports only types, so the panel bundles it |
@@ -352,12 +361,17 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/views/settings.ts` | The settings page's view: each block with its revision, each Source's settings with its kind's form, and the execution environment |
 | `src/app/views/overview.ts` | The overview: Tickets that need a person, problems, the last day's flow and the Executor's load |
 | `src/executor/dsh.ts` | The DshExecutor, `WorkerSlots`, `ticketExecution`, `inputMessage` and `mandateInstructions` |
+| `src/executor/tasks.ts` | `TaskRunner`: DSH task Session launch/recovery, workspaces, Host instructions and Worker reports |
 | `src/executor/background.ts` | A worker's background work in DeepSeek Harness, the shell jobs its Session owns (`ctx.jobs`) and its subagents (`ctx.subagents`): `runningJobs`, `untilQuiet`, `killJobs`, `collectJobs`, `stopSubagents`, `stopBackground`, `until`, and `cancelled`, the workers whose turn a stop of their subagents cancelled |
 | `src/infra/commands.ts` | `Commands`, the CLI transport: `run`; `api` and `pages`, limited to the configured repository and validated; `lark` as the bot; `git`. `CliError` carries the code a command's output reports, such as a GitHub HTTP status, and a command that prints nothing fails with how it ended, never with its arguments; `validItems` skips and counts the malformed items of a list |
 | `src/infra/environment.ts` | The agent's process environment: command shims, the git configuration and credential helper, `runAsWorker`, and the checks of the environment and of a Ticket's directory |
 | `src/infra/paths.ts` | The package's root, where packaged files are |
 | `src/infra/text.ts` | Word counts and the chat message limit, `fill` and `sameName` |
 | `src/infra/health.ts` | The `HealthBoard`, every part's health entry, each claimed by its one writer |
+| `src/tasks/model.ts` | Task graph, task, Worker run and report schemas and types |
+| `src/tasks/workers.ts` | Worker profile schema, JSON catalog loader and exact capability allowlists |
+| `src/tasks/engine.ts` | Persistent task graph state machine, dependencies, claims, updates, reports, retries and cancellation |
+| `src/tasks/index.ts` | Task domain exports |
 | `src/sources/kind.ts` | The `SourceKind` protocol |
 | `src/sources/registry.ts` | `SourceRegistry` |
 | `src/sources/host.ts` | `SourceHost`, `SourceContext`, `Health`, `health` and the fixed health texts |
@@ -424,6 +438,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/delivery.spec.ts` | `AgentDelivery` |
 | `tests/retry-health.spec.ts`, `tests/role-models.spec.ts` | Model budget retries, and the models of the two roles |
 | `tests/runtime.spec.ts` | The whole application on a simulated DeepSeek Harness host, through tools and HTTP |
+| `tests/tasks.spec.ts` | Worker catalog validation and task graph dependencies, edits, concurrency, reports, retries and cancellation |
+| `tests/deployment-path.spec.ts` | Native absolute state-directory paths on Windows and POSIX |
 | `tests/tools.spec.ts` | The Sessions' tools: what `orchestrator_read` reads for each role, and the shapes and checks of the other main Session tools |
 | `tests/runtime-concurrency.spec.ts` | Work that overlaps: Triggers during a pass, Tickets that change during deliveries and launches |
 | `tests/http.spec.ts` | The same-origin and loopback checks, the status of each kind of failure, the body limit, path parameters and queries |
@@ -506,9 +522,15 @@ Settings saves select `policy`, `eval`, `executor`, `pause`, or `source`; the la
 
 The main Session also has DeepSeek Harness's `skill`, `bash`, `read`, `read_image`, `job_output`, `job_list` and `job_kill`. Avoiding code reads is a prompt rule, not a tool restriction.
 
+When `stateDir/workers.json` exists, the main Session also receives `task_submit`, `task_list`, `task_add`, `task_update`, `task_instruct`, `task_retry`, `task_cancel` and `task_cancel_task`. Worker Sessions receive `task_report`; they receive `task_skill` only when their profile lists one or more Skills. The repository README links to the Worker orchestration guide for the JSON contract and capability limits.
+
+With a Worker catalog, `Sessions` selects an independent general Host prompt with role descriptions, exact capabilities and workspace roots. Source instructions occupy their own section and do not block direct tasks. `TaskRunner` persists each report together with a stable-ID Host relay in one transaction; `Effects` delivers and retries it regardless of Source setup. Dependency messages include both upstream summaries and artifact references. Runtime tool parameter schemas are converted to plain JSON before DSH registration, preserving compatibility with schema snapshots and SDK projection.
+
+Generic task runs validate every configured tool and Skill before receiving work. A per-call guard enforces the allowlist even for Agent-local tool registration and rejects ended runs. Cancellation, final reports and shutdown stop managed jobs, and recovery stops a previous live turn before delivering saved instructions. These checks enforce the DSH interface boundary; they do not create process or filesystem isolation.
+
 ### Presets and wait limits
 
-New main Sessions use `dsh-superagent-router` (`ROUTER_PRESET`). Shell commands and job waits return after 5 seconds. If the Web UI selects another preset before the first turn, `Sessions` restores this preset, or `WORKER_PRESET` for a worker.
+New main Sessions use `dsh-superagent-router` (`ROUTER_PRESET`), Ticket Executors use `dsh-superagent-worker` (`WORKER_PRESET`), and generic task workers use `dsh-superagent-task-worker` (`TASK_WORKER_PRESET`). Shell commands and job waits return after 5 seconds. If the Web UI selects another preset before the first turn, `Sessions` restores the role-specific preset.
 
 The `noWait` guard in `src/app/sessions.ts` refuses main-Session shell commands that invoke `sleep` at a command position, shell `timeoutMs` above 30 seconds, and `job_output` waits above 5 seconds. Reports and job results arrive automatically, so waiting only delays incoming candidates.
 

@@ -3,11 +3,12 @@ import { bindScopeParent } from '@deepseek-ai/dsh-scope'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { Runtime } from '../src/app/runtime.ts'
+import { TASK_WORKER_PRESET } from '../src/app/sessions.ts'
 import { jobRegistry } from './fixtures/host.ts'
 import { evalsHealth } from '../src/app/views/overview.ts'
 import { mandateInstructions } from '../src/executor/dsh.ts'
@@ -164,8 +165,9 @@ beforeEach(async () => {
       if (agents.has(sessionId)) return
       const agentCtx = new Context()
       const preset = {}
-      const inherited = ['bash', 'read', 'read_image', 'skill', 'job_output', 'job_list', 'job_kill', 'grep', 'web_search',
-        'ask_user_question', 'plugin_manager', 'schedule_create', 'create_goal', 'session_create', 'session_send_message', 'feishu_doc_edit']
+      const inherited = [process.platform === 'win32' ? 'pwsh' : 'bash', 'read', 'read_image', 'skill', 'job_output', 'job_list', 'job_kill', 'grep', 'web_search',
+        'ask_user_question', 'plugin_manager', 'schedule_create', 'create_goal', 'session_create', 'session_send_message', 'feishu_doc_edit',
+        'mcp__repository__repo_search', 'mcp__other__repo_search']
       const sessionTools = new Map<string, RegisteredTool>()
       tools.set(sessionId, sessionTools)
       agentCtx.reflect.provide('tools', { register: (tool: RegisteredTool) => { sessionTools.set(tool.name,
@@ -203,7 +205,7 @@ beforeEach(async () => {
     inspect: vi.fn(async () => ({ events: [] })),
   }
   jobs = jobRegistry()
-  services = { agents, llm: { resolveCallConfig: vi.fn(async value => value) }, sessionController: controller, sessionPersistence: { flush: vi.fn(async () => {}), open: vi.fn(async () => ({ read: async () => ({ events: [] }), [Symbol.asyncDispose]: async () => {} })) }, workspaceRegistry: { create: async (cwd: string) => ({ id: cwd }) }, permissionPresets: { set: () => {} }, subprocess, webServer: { host: '127.0.0.1', port: 3082, register: (route: { handler: HttpHandler }) => { http = route.handler; return () => {} } }, jobs: jobs.service }
+  services = { agents, llm: { resolveCallConfig: vi.fn(async value => value) }, sessionController: controller, sessionPersistence: { flush: vi.fn(async () => {}), open: vi.fn(async () => ({ read: async () => ({ events: [] }), [Symbol.asyncDispose]: async () => {} })) }, workspaceRegistry: { create: async (cwd: string) => ({ id: cwd }) }, permissionPresets: { set: vi.fn() }, subprocess, webServer: { host: '127.0.0.1', port: 3082, register: (route: { handler: HttpHandler }) => { http = route.handler; return () => {} } }, jobs: jobs.service }
   for (const [name, service] of Object.entries(services)) ctx.reflect.provide(name, service)
   for (const cli of [AGENT(), OTHER(), BOT()]) writeFileSync(cli, '#!/bin/sh\n', { mode: 0o755 })
   const store = new Store(join(directory, 'orchestrator.sqlite')); seed(store); store.close()
@@ -238,6 +240,380 @@ it('relays an explicit member mention as a candidate and creates the ticket, ack
     thread: `feishu:${CHAT}:om_1`, text: trigger.text }) })
   expect(first.trigger).not.toHaveProperty('read')
   expect(await route({ kind: 'accept', trigger_id: trigger.id, title: 'again', worktree_name: worktreeName, acknowledgement: 'x' })).toMatchObject({ ticket: { ticket_id: ticket.id } })
+})
+
+it('loads a JSON worker catalog, submits a task graph, and limits its DSH Session to the configured tools', async () => {
+  const workersFile = join(directory, 'workers.json')
+  writeFileSync(workersFile, JSON.stringify({ version: 1, profiles: [{
+    id: 'reviewer', name: 'Reviewer', maxInstances: 1, permissionPreset: 'read-only', tools: ['read'],
+    mcps: [{ server: 'repository', tools: ['repo_search'] }], skills: [], prompt: 'Review only the assigned change.',
+  }] }))
+  runtime = await restart()
+  await runtime.ready
+  expect(runtime.taskRunner).toBeDefined()
+  expect(tools.get(runtime.masterId)?.has('task_submit')).toBe(true)
+  const submitted = runtime.taskRunner!.submit({ objective: 'Review a patch', tasks: [
+    { id: 'review', title: 'Review patch', description: 'Inspect the changed files and report concrete findings.', worker: 'reviewer',
+      acceptanceCriteria: ['Every finding cites a file and line.'] },
+  ] })
+  const graph = submitted.graph
+  const task = runtime.taskEngine!.get(graph.id)!.tasks[0]!
+  const sessionId = task.run!.sessionId
+  await vi.waitFor(() => expect(tools.get(sessionId)?.has('task_report')).toBe(true), { timeout: 3000 })
+  expect([...tools.get(sessionId)!.keys()]).toEqual(['task_report'])
+  expect(restricts.get(sessionId)).toContainEqual({ allow: ['read', 'mcp__repository__repo_search'] })
+  expect(controller.create.mock.calls.map(([options]) => options as { sessionId: string; agentPreset: string }))
+    .toContainEqual(expect.objectContaining({ sessionId, agentPreset: TASK_WORKER_PRESET }))
+  expect((services.permissionPresets as { set: ReturnType<typeof vi.fn> }).set).toHaveBeenCalledWith(
+    (agents.get(sessionId) as unknown as { session: object }).session, 'read-only')
+  const guard = guards.get(sessionId)!
+  expect(guard({ name: 'read', arguments: {} })).toBeUndefined()
+  expect(guard({ name: 'mcp__repository__repo_search', arguments: {} })).toBeUndefined()
+  expect(guard({ name: 'task_report', arguments: {} })).toBeUndefined()
+  expect(guard({ name: 'write', arguments: {} })).toMatch(/not allowed by Worker profile reviewer/)
+  expect(guard({ name: 'subagent', arguments: {} })).toMatch(/not allowed by Worker profile reviewer/)
+  expect(guard({ name: 'task_skill', arguments: {} })).toMatch(/not allowed by Worker profile reviewer/)
+  expect(deliveries.mock.calls.some(([item]) => item.sessionId === sessionId && JSON.parse(item.text).task_id === 'review')).toBe(true)
+  const current = runtime.taskEngine!.get(graph.id)!
+  const instruction = await runTool(runtime.masterId, 'task_instruct', {
+    graph_id: graph.id, task_id: 'review', expected_revision: current.revision, instruction: 'Also check public API compatibility.',
+  })
+  expect(instruction).toMatchObject({ delivered: true, graph: { revision: current.revision + 2 } })
+  expect(deliveries.mock.calls.some(([item]) => item.sessionId === sessionId && item.mode === 'steer'
+    && item.text.includes('Also check public API compatibility.'))).toBe(true)
+  const second = runtime.taskRunner!.submit({ objective: 'Review another patch', tasks: [
+    { id: 'second-review', title: 'Review second patch', description: 'Inspect the second patch.', worker: 'reviewer' },
+  ] })
+  expect(second.graph.tasks[0]?.status).toBe('ready')
+  await runTool(sessionId, 'task_report', { state: 'completed', summary: 'Review completed with no findings.' })
+  await vi.waitFor(() => expect(runtime.taskEngine!.get(second.graph.id)?.tasks[0]?.status).toBe('running'))
+  const generatedId = runtime.taskRunner!.submit({ objective: 'Submit a task without choosing its id', tasks: [
+    { title: 'Review unnamed task', description: 'Confirm generated task ids work.', worker: 'reviewer' },
+  ] })
+  expect(generatedId.graph.tasks[0]).toMatchObject({ id: 'task-1', status: 'ready' })
+})
+
+it('keeps explicit task workspaces inside the selected worker root', async () => {
+  const workersFile = join(directory, 'workers.json')
+  const workspaceRoot = join(directory, 'reviewer-workspaces')
+  writeFileSync(workersFile, JSON.stringify({ version: 1, profiles: [{
+    id: 'reviewer', name: 'Reviewer', maxInstances: 1, workspaceRoot,
+  }] }))
+  runtime = await restart()
+  await runtime.ready
+  const outside = join(directory, 'outside-workspaces', 'task')
+  expect(() => runtime.taskRunner!.submit({ objective: 'Reject workspace escape', tasks: [
+    { id: 'escape', title: 'Escape', description: 'Must not start outside its worker root.', worker: 'reviewer', workspace: outside },
+  ] })).toThrow(/inside Worker profile reviewer/)
+  expect(runtime.taskRunner!.list()).toHaveLength(0)
+
+  const inside = join(workspaceRoot, 'custom')
+  const accepted = runtime.taskRunner!.submit({ objective: 'Use a worker workspace', tasks: [
+    { id: 'contained', title: 'Contained', description: 'Run inside its worker root.', worker: 'reviewer', workspace: inside },
+  ] })
+  expect(accepted.graph.tasks[0]?.workspace).toBe(inside)
+})
+
+it('exposes only configured DSH skills through the task_skill tool', async () => {
+  const workersFile = join(directory, 'workers.json')
+  writeFileSync(workersFile, JSON.stringify({ version: 1, profiles: [{
+    id: 'analyst', name: 'Analyst', maxInstances: 1, tools: ['read'], mcps: [], skills: ['typescript'],
+  }] }))
+  const definition = { name: 'typescript', description: 'TypeScript review rules', provider: 'test',
+    invocation: { modelInvocable: true, userInvocable: false }, content: 'Check types and runtime behavior.' }
+  const skillService = { list: vi.fn(async () => [definition]), get: vi.fn(async (name: string) => name === 'typescript' ? definition : undefined) }
+  services.skills = skillService
+  runtime = await restart()
+  await runtime.ready
+  const submitted = runtime.taskRunner!.submit({ objective: 'Analyze TypeScript', tasks: [
+    { id: 'analyze', title: 'Analyze', description: 'Review the TypeScript module', worker: 'analyst' },
+  ] })
+  const sessionId = submitted.graph.tasks[0]!.run!.sessionId
+  await vi.waitFor(() => expect([...tools.get(sessionId)!.keys()]).toEqual(['task_report', 'task_skill']))
+  await expect(runtime.taskRunner!.readSkill(sessionId, 'github', new AbortController().signal)).rejects.toThrow(/not allowed/)
+  await expect(runtime.taskRunner!.readSkill(sessionId, 'typescript', new AbortController().signal)).resolves.toMatchObject({
+    name: 'typescript', content: 'Check types and runtime behavior.',
+  })
+  expect(skillService.list).toHaveBeenCalledWith(expect.objectContaining({ cwd: expect.any(String), scope: agents.get(sessionId) }))
+})
+
+it('does not expose general task orchestration when no Worker catalog is configured', () => {
+  expect(runtime.taskRunner).toBeUndefined()
+  expect(tools.get(runtime.masterId)?.has('task_submit')).toBe(false)
+})
+
+it('runs direct task orchestration while GitHub and Feishu setup is pending', async () => {
+  writeFileSync(join(directory, 'workers.json'), JSON.stringify({ version: 1, profiles: [
+    { id: 'analyst', name: 'Analyst', maxInstances: 1, tools: [], mcps: [], skills: [] },
+  ] }))
+  await runtime.stop()
+  const store = new Store(join(directory, 'orchestrator.sqlite'))
+  store.saveSettings({ ...store.settings(), sources: {} })
+  store.close()
+  const ctx = new Context()
+  for (const [name, service] of Object.entries(services)) ctx.reflect.provide(name, service)
+  runtime = new Runtime(ctx, testMachine({ stateDir: directory }), restarts)
+  await runtime.ready
+
+  expect(runtime.configured()).toBe(false)
+  expect(runtime.setupProblem).toMatchObject({ place: 'github', code: 'repositoryUnset' })
+  expect(runtime.health.runtime).toMatchObject({ state: 'ready', detail: expect.stringContaining('Task orchestration is ready') })
+  expect(tools.get(runtime.masterId)?.has('task_submit')).toBe(true)
+  const submitted = runtime.taskRunner!.submit({ objective: 'Analyze a supplied artifact', tasks: [
+    { id: 'analyze', title: 'Analyze artifact', description: 'Inspect the supplied local artifact and report evidence.', worker: 'analyst' },
+  ] })
+  const sessionId = submitted.graph.tasks[0]!.run!.sessionId
+  await vi.waitFor(() => expect([...tools.get(sessionId)!.keys()]).toEqual(['task_report']))
+  expect(runtime.taskEngine!.get(submitted.graph.id)?.tasks[0]?.status).toBe('running')
+  const prompt = sections.get(runtime.masterId)!.text({})
+  expect(prompt).toContain('general-purpose task execution system')
+  expect(prompt).not.toContain('Act only as the deployment\'s GitHub account')
+  expect(prompt).not.toContain('Workers investigate and implement; never add implementation plans')
+  expect(prompt).not.toContain('waiting for setup')
+  await runTool(sessionId, 'task_report', { state: 'progress', summary: 'Analysis is underway.' })
+  await runTool(sessionId, 'task_report', { state: 'completed', summary: 'Artifact analyzed.', artifacts: ['analysis.txt'] })
+  expect(relays(runtime.masterId).filter(item => item.kind === 'task_report')).toEqual([
+    expect.objectContaining({ graph_id: submitted.graph.id, task_id: 'analyze', state: 'progress', summary: 'Analysis is underway.' }),
+    expect.objectContaining({ graph_id: submitted.graph.id, task_id: 'analyze', state: 'completed', graph_status: 'completed', artifacts: ['analysis.txt'] }),
+  ])
+})
+
+it('commits a task report and its Host notification together, or neither', async () => {
+  writeFileSync(join(directory, 'workers.json'), JSON.stringify({ version: 1, profiles: [
+    { id: 'analyst', name: 'Analyst', maxInstances: 1 },
+  ] }))
+  runtime = await restart()
+  await runtime.ready
+  const { graph } = runtime.taskRunner!.submit({ objective: 'Analyze an artifact', tasks: [
+    { id: 'analyze', title: 'Analyze', description: 'Inspect the artifact.', worker: 'analyst' },
+  ] })
+  await runtime.taskRunner!.drain()
+  const before = runtime.taskEngine!.get(graph.id)!
+  const sessionId = before.tasks[0]!.run!.sessionId
+  vi.spyOn(runtime.sessions, 'relay').mockImplementationOnce(() => { throw new Error('Queue write failed') })
+  expect(() => runtime.taskRunner!.report(sessionId, { state: 'completed', summary: 'Done' })).toThrow('Queue write failed')
+  expect(runtime.taskEngine!.get(graph.id)).toEqual(before)
+  expect(runtime.effects.pending('relay')).toBe(false)
+  await runTool(sessionId, 'task_report', { state: 'completed', summary: 'Done' })
+  expect(relays(runtime.masterId).filter(item => item.kind === 'task_report')).toHaveLength(1)
+})
+
+it('delivers a persisted task report after a failed Host delivery and restart', async () => {
+  writeFileSync(join(directory, 'workers.json'), JSON.stringify({ version: 1, profiles: [
+    { id: 'analyst', name: 'Analyst', maxInstances: 1 },
+  ] }))
+  runtime = await restart()
+  await runtime.ready
+  const { graph } = runtime.taskRunner!.submit({ objective: 'Analyze an artifact', tasks: [
+    { id: 'analyze', title: 'Analyze', description: 'Inspect the artifact.', worker: 'analyst' },
+  ] })
+  await runtime.taskRunner!.drain()
+  const sessionId = runtime.taskEngine!.get(graph.id)!.tasks[0]!.run!.sessionId
+  const host = agents.get(runtime.masterId)! as unknown as { steer: (message: UserMessage) => void }
+  const fail = vi.spyOn(host, 'steer').mockImplementationOnce(() => { throw new Error('Host delivery interrupted') })
+  await runTool(sessionId, 'task_report', { state: 'completed', summary: 'Analysis finished.' })
+  expect(runtime.taskEngine!.get(graph.id)?.status).toBe('completed')
+  const pending = runtime.store.db.prepare("SELECT key, value, attempts FROM effect WHERE kind = 'relay'").get()!
+  expect(pending.attempts).toBe(1)
+  const event = JSON.parse(String(pending.value)).text
+  expect(JSON.parse(event)).toMatchObject({ kind: 'task_report', graph_id: graph.id, state: 'completed' })
+  expect(relays(runtime.masterId).filter(item => item.kind === 'task_report')).toHaveLength(0)
+  fail.mockRestore()
+  await runtime.stop()
+  const store = new Store(join(directory, 'orchestrator.sqlite'))
+  store.db.prepare("UPDATE effect SET due = 0 WHERE kind = 'relay'").run()
+  store.close()
+  runtime = await restart()
+  await runtime.ready
+  await runtime.idle()
+  expect(relays(runtime.masterId).filter(item => item.kind === 'task_report')).toEqual([JSON.parse(event)])
+  expect(runtime.effects.pending('relay', String(pending.key))).toBe(false)
+})
+
+it('passes dependency artifacts downstream and reports a Worker that ends without a final report', async () => {
+  writeFileSync(join(directory, 'workers.json'), JSON.stringify({ version: 1, profiles: [
+    { id: 'analyst', name: 'Analyst', maxInstances: 1 },
+  ] }))
+  runtime = await restart()
+  await runtime.ready
+  const { graph } = runtime.taskRunner!.submit({ objective: 'Analyze and review', tasks: [
+    { id: 'analyze', title: 'Analyze', description: 'Inspect the artifact.', worker: 'analyst' },
+    { id: 'review', title: 'Review', description: 'Review the analysis.', worker: 'analyst', dependsOn: ['analyze'] },
+  ] })
+  await runtime.taskRunner!.drain()
+  await runTool(graph.tasks[0]!.run!.sessionId, 'task_report', { state: 'completed', summary: 'Analysis finished.', artifacts: ['analysis.txt'] })
+  await runtime.taskRunner!.drain()
+  const sessionId = runtime.taskEngine!.get(graph.id)!.tasks[1]!.run!.sessionId
+  expect(relays(sessionId)[0]).toMatchObject({ dependencies: [{ id: 'analyze', summary: 'Analysis finished.', artifacts: ['analysis.txt'] }] })
+  const agent = agents.get(sessionId)!
+  agent.status = 'idle'
+  ;(runtime as unknown as { ctx: Context }).ctx.emit('agent/status', { agent, status: 'idle' } as never)
+  await runtime.idle()
+  expect(relays(runtime.masterId).at(-1)).toMatchObject({ kind: 'task_report', task_id: 'review', state: 'blocked',
+    summary: expect.stringContaining('without a completed, blocked, or failed task report') })
+})
+
+it('reports unavailable configured capabilities before delivering work', async () => {
+  writeFileSync(join(directory, 'workers.json'), JSON.stringify({ version: 1, profiles: [
+    { id: 'analyst', name: 'Analyst', maxInstances: 1, tools: ['missing_tool'] },
+  ] }))
+  runtime = await restart()
+  await runtime.ready
+  const { graph } = runtime.taskRunner!.submit({ objective: 'Analyze', tasks: [
+    { id: 'analyze', title: 'Analyze', description: 'Inspect the artifact.', worker: 'analyst' },
+  ] })
+  await runtime.taskRunner!.drain()
+  await runtime.idle()
+  expect(runtime.taskEngine!.get(graph.id)?.tasks[0]?.report).toMatchObject({ state: 'failed',
+    summary: expect.stringContaining('allows unavailable tools: missing_tool') })
+  expect(relays(graph.tasks[0]!.run!.sessionId)).toEqual([])
+  expect(relays(runtime.masterId).at(-1)).toMatchObject({ kind: 'task_report', state: 'failed' })
+})
+
+it('stops generic task background jobs on cancellation and final reports without touching another task', async () => {
+  writeFileSync(join(directory, 'workers.json'), JSON.stringify({ version: 1, profiles: [
+    { id: 'analyst', name: 'Analyst', maxInstances: 2 },
+  ] }))
+  runtime = await restart()
+  await runtime.ready
+  const { graph } = runtime.taskRunner!.submit({ objective: 'Manage task lifecycle', tasks: [
+    { id: 'cancel', title: 'Cancel', description: 'Will be cancelled.', worker: 'analyst' },
+    { id: 'finish', title: 'Finish', description: 'Will finish.', worker: 'analyst' },
+  ] })
+  await runtime.taskRunner!.drain()
+  const [cancel, finish] = runtime.taskEngine!.get(graph.id)!.tasks
+  const cancelledJob = jobs.run(cancel!.run!.sessionId)
+  const finishedJob = jobs.run(finish!.run!.sessionId)
+  await runTool(runtime.masterId, 'task_cancel_task', { graph_id: graph.id, task_id: cancel!.id,
+    expected_revision: runtime.taskEngine!.get(graph.id)!.revision })
+  await runtime.taskRunner!.drain()
+  expect(jobs.service.kill).toHaveBeenCalledWith(cancelledJob, cancel!.run!.sessionId, 'Task cancelled')
+  expect(jobs.service.kill).not.toHaveBeenCalledWith(finishedJob, expect.anything(), expect.anything())
+  await expect(runTool(cancel!.run!.sessionId, 'task_report', { state: 'completed', summary: 'Too late.' })).rejects.toThrow(/no active task/)
+  await runTool(finish!.run!.sessionId, 'task_report', { state: 'completed', summary: 'Done.' })
+  await runtime.taskRunner!.drain()
+  expect(jobs.service.kill).toHaveBeenCalledWith(finishedJob, finish!.run!.sessionId, 'Task completed')
+})
+
+it('stops task jobs at Host shutdown and recovers the same run with persisted undelivered instructions', async () => {
+  writeFileSync(join(directory, 'workers.json'), JSON.stringify({ version: 1, profiles: [
+    { id: 'analyst', name: 'Analyst', maxInstances: 1 },
+  ] }))
+  runtime = await restart()
+  await runtime.ready
+  const { graph } = runtime.taskRunner!.submit({ objective: 'Recover running task', tasks: [
+    { id: 'analyze', title: 'Analyze', description: 'Inspect the artifact.', worker: 'analyst' },
+  ] })
+  await runtime.taskRunner!.drain()
+  const run = runtime.taskEngine!.get(graph.id)!.tasks[0]!.run!
+  runtime.taskEngine!.addInstruction(graph.id, 'analyze', 'Keep RECOVERY_42 in the result.')
+  const job = jobs.run(run.sessionId)
+  deliveries.mockClear()
+  runtime = await restart()
+  await runtime.ready
+  await runtime.taskRunner!.drain()
+  expect(jobs.service.kill).toHaveBeenCalledWith(job, run.sessionId, 'Task Host stopped')
+  const recovered = runtime.taskEngine!.get(graph.id)!.tasks[0]!
+  expect(recovered).toMatchObject({ status: 'running', run: { id: run.id, sessionId: run.sessionId, attempt: 1 },
+    instructions: [expect.objectContaining({ text: 'Keep RECOVERY_42 in the result.', deliveredAt: expect.any(String) })] })
+  expect(relays(run.sessionId)).toContainEqual(expect.objectContaining({
+    recovery: expect.stringContaining('Host restarted'), host_instructions: ['Keep RECOVERY_42 in the result.'],
+  }))
+  await runTool(run.sessionId, 'task_report', { state: 'completed', summary: 'Recovered RECOVERY_42.' })
+  expect(runtime.taskEngine!.get(graph.id)?.status).toBe('completed')
+})
+
+it('delivers an instruction accepted before the task Session is created', async () => {
+  writeFileSync(join(directory, 'workers.json'), JSON.stringify({ version: 1, profiles: [
+    { id: 'analyst', name: 'Analyst', maxInstances: 1 },
+  ] }))
+  runtime = await restart()
+  await runtime.ready
+  const ready = Promise.withResolvers<void>()
+  const ensure = runtime.sessions.ensure.bind(runtime.sessions)
+  vi.spyOn(runtime.sessions, 'ensure').mockImplementationOnce(async (...args) => { await ready.promise; return ensure(...args) })
+  const { graph } = runtime.taskRunner!.submit({ objective: 'Accept early direction', tasks: [
+    { id: 'analyze', title: 'Analyze', description: 'Inspect the artifact.', worker: 'analyst' },
+  ] })
+  const sessionId = graph.tasks[0]!.run!.sessionId
+  const instruction = await runtime.taskRunner!.instruct(graph.id, 'analyze', 'Include EARLY_42.')
+  expect(instruction.delivered).toBe(false)
+  ready.resolve()
+  await runtime.taskRunner!.drain()
+  expect(relays(sessionId)).toContainEqual(expect.objectContaining({ host_instructions: ['Include EARLY_42.'] }))
+  expect(runtime.taskRunner!.get(graph.id)!.tasks[0]!.instructions?.[0]?.deliveredAt).toEqual(expect.any(String))
+})
+
+it('does not deliver task work if cancellation wins while message history is loading', async () => {
+  writeFileSync(join(directory, 'workers.json'), JSON.stringify({ version: 1, profiles: [
+    { id: 'analyst', name: 'Analyst', maxInstances: 1 },
+  ] }))
+  runtime = await restart()
+  await runtime.ready
+  const ready = Promise.withResolvers<void>()
+  const prompt = runtime.sessions.prompt.bind(runtime.sessions)
+  let pending = false
+  vi.spyOn(runtime.sessions, 'prompt').mockImplementationOnce(async (...args) => { pending = true; await ready.promise; return prompt(...args) })
+  const { graph } = runtime.taskRunner!.submit({ objective: 'Cancel before delivery', tasks: [
+    { id: 'analyze', title: 'Analyze', description: 'Must not reach a cancelled Worker.', worker: 'analyst' },
+  ] })
+  await vi.waitFor(() => expect(pending).toBe(true))
+  runtime.taskRunner!.cancel(graph.id)
+  ready.resolve()
+  await runtime.taskRunner!.drain()
+  expect(relays(graph.tasks[0]!.run!.sessionId)).toEqual([])
+  expect(runtime.taskRunner!.get(graph.id)?.status).toBe('cancelled')
+})
+
+it('keeps a reopened completed or superseded task Session closed to every tool', async () => {
+  writeFileSync(join(directory, 'workers.json'), JSON.stringify({ version: 1, profiles: [
+    { id: 'analyst', name: 'Analyst', maxInstances: 1 },
+  ] }))
+  runtime = await restart()
+  await runtime.ready
+  for (const state of ['completed', 'failed'] as const) {
+    const { graph } = runtime.taskRunner!.submit({ objective: 'Check restored authorization', tasks: [
+      { id: 'analyze', title: 'Analyze', description: 'Inspect the artifact.', worker: 'analyst' },
+    ] })
+    await runtime.taskRunner!.drain()
+    const sessionId = graph.tasks[0]!.run!.sessionId
+    await runTool(sessionId, 'task_report', { state, summary: 'Original run ended.' })
+    if (state === 'failed') { runtime.taskRunner!.retry(graph.id, 'analyze'); await runtime.taskRunner!.drain() }
+    agents.delete(sessionId)
+    await runtime.sessions.ensure(sessionId, directory, 'Reopened old task', 'task-worker')
+    expect(restricts.get(sessionId)?.at(-1)).toEqual({ allow: [] })
+    expect([...tools.get(sessionId)!.keys()]).toEqual([])
+    for (const name of ['read', 'write', 'task_report', 'mcp__repository__repo_search', 'local_bypass']) {
+      expect(guards.get(sessionId)!({ name, arguments: {} })).toMatch(/Task assignment ended/)
+    }
+  }
+})
+
+it('starts another waiting graph after a launch failure and reports a live Worker error', async () => {
+  writeFileSync(join(directory, 'workers.json'), JSON.stringify({ version: 1, profiles: [
+    { id: 'analyst', name: 'Analyst', maxInstances: 1 },
+  ] }))
+  runtime = await restart()
+  await runtime.ready
+  let failLaunch!: (error: Error) => void
+  controller.create.mockImplementationOnce(() => new Promise((_, reject) => { failLaunch = reject }))
+  const plan = { objective: 'Analyze', tasks: [{ id: 'analyze', title: 'Analyze', description: 'Inspect the artifact.', worker: 'analyst' }] }
+  const first = runtime.taskRunner!.submit(plan).graph
+  const second = runtime.taskRunner!.submit(plan).graph
+  expect(second.tasks[0]?.status).toBe('ready')
+  await vi.waitFor(() => expect(failLaunch).toBeTypeOf('function'))
+  failLaunch(new Error('Session creation failed'))
+  await runtime.taskRunner!.drain()
+  await runtime.idle()
+  expect(runtime.taskEngine!.get(first.id)?.tasks[0]?.report).toMatchObject({ state: 'failed', summary: expect.stringContaining('Session creation failed') })
+  const active = runtime.taskEngine!.get(second.id)!.tasks[0]!
+  expect(active.status).toBe('running')
+  ;(runtime as unknown as { ctx: Context }).ctx.emit('agent/error', {
+    agent: agents.get(active.run!.sessionId), turn: 1, step: 1, error: new Error('Invalid tool schema'),
+  } as never)
+  await runtime.idle()
+  expect(relays(runtime.masterId).at(-1)).toMatchObject({ kind: 'task_report', graph_id: second.id, state: 'failed',
+    summary: expect.stringContaining('Invalid tool schema') })
 })
 
 it('fans a person\'s later thread message out to the live worker as context and tells the orchestrator, without an Eval', async () => {
@@ -853,7 +1229,7 @@ it('reports each setup problem where the operator fixes it, and checks the agent
   const check = subprocess.spawn.mock.calls.map(([spec]) => spec.argv).find(argv => argv.includes(AGENT()))!
   expect(check[0]).toBe('env')
   expect(check[1]!.startsWith('PATH=')).toBe(true)
-  expect(check[1]!.slice('PATH='.length).split(':')).not.toContain(join(directory, 'worker-bin'))
+  expect(check[1]!.slice('PATH='.length).split(delimiter)).not.toContain(join(directory, 'worker-bin'))
   const valid = { ...answers }
   // git older than 2.32 ignores GIT_CONFIG_GLOBAL and reads the operator's configuration.
   answers = { ...valid, [HELPERS]: 'file:/home/me/.gitconfig\0!gh auth git-credential\0' }
@@ -967,7 +1343,7 @@ it('runs setup again while the Feishu bot check failed, and restores the process
   await broken.ready
   expect(broken.setupProblem).toMatchObject({ place: 'deployment', code: 'gitTooOld' })
   expect(process.env.GIT_CONFIG_GLOBAL).toBeUndefined()
-  expect(process.env.PATH?.split(':')).not.toContain(join(directory, 'worker-bin'))
+  expect(process.env.PATH?.split(delimiter)).not.toContain(join(directory, 'worker-bin'))
 })
 
 it('writes worker shims and the agent environment from the configuration only, and restores the environment on stop', async () => {
@@ -981,13 +1357,14 @@ it('writes worker shims and the agent environment from the configuration only, a
   expect(readFileSync(join(bin, 'personal-gh'), 'utf8')).toContain('personal-gh is blocked in this installation; use gh, which acts as agent-bot.')
   expect(readFileSync(join(bin, 'lark-cli'), 'utf8')).toContain('lark-cli is unavailable: this installation has no Feishu bot.')
   expect(readFileSync(join(bin, 'gh'), 'utf8')).toContain(`exec '${AGENT()}'`)
-  expect(readFileSync(workerGitConfig(directory), 'utf8')).toContain(`[credential "https://github.com"]\n\thelper = "${credentialHelper(AGENT())}"`)
+  const escapedCredentialHelper = credentialHelper(AGENT()).replaceAll('\\', '\\\\')
+  expect(readFileSync(workerGitConfig(directory), 'utf8')).toContain(`[credential "https://github.com"]\n\thelper = "${escapedCredentialHelper}"`)
   expect(process.env).toMatchObject({ GIT_CONFIG_GLOBAL: workerGitConfig(directory), GIT_CONFIG_NOSYSTEM: '1' })
   expect(process.env.GIT_AUTHOR_NAME).toBeUndefined()
-  expect(process.env.PATH?.split(':')[0]).toBe(bin)
+  expect(process.env.PATH?.split(delimiter)[0]).toBe(bin)
   await next.stop()
   expect(process.env.GIT_CONFIG_GLOBAL).toBeUndefined()
-  expect(process.env.PATH?.split(':')).not.toContain(bin)
+  expect(process.env.PATH?.split(delimiter)).not.toContain(bin)
 })
 
 it('waits for setup when the shim directory holds a file dsh-superagent did not write, and leaves the file alone', async () => {
@@ -1560,10 +1937,10 @@ it('refuses an ended ticket\'s worker its tools, and restricts the main Session 
   expect(guards.get(sessionId)!()).toBeUndefined()
   runtime.engine.stopTicket(ticket.id)
   expect(guards.get(sessionId)!()).toBe('Ticket ended; new work needs a new authorized ticket')
-  expect(restricts.get(runtime.masterId)).toEqual([{ allow: ['skill', 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }])
+  expect(restricts.get(runtime.masterId)).toEqual([{ allow: ['skill', process.platform === 'win32' ? 'pwsh' : 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }])
   // A worker keeps only the profile's work tools: none that ask a person, change the profile, schedule or start work outside
   // the worker slots, reach other Sessions or edit documents, whenever they were registered.
-  expect(restricts.get(sessionId)).toEqual([{ allow: ['read', 'read_image', 'grep', 'bash', 'job_output', 'job_list', 'job_kill', 'web_search', 'skill'] }])
+  expect(restricts.get(sessionId)).toEqual([{ allow: ['read', 'read_image', 'grep', process.platform === 'win32' ? 'pwsh' : 'bash', 'job_output', 'job_list', 'job_kill', 'web_search', 'skill'] }])
 })
 
 it('gives an explicit ticket\'s worker a prompt without the limits of an inferred Mandate', async () => {
@@ -1681,6 +2058,9 @@ it('creates an Executor Session under the bundle\'s worker preset, and the main 
 
 it('selects its own preset again for a main Session or worker a person switched before its first turn, and not after it', async () => {
   const { sessionId } = await acceptedTicket()
+  writeFileSync(join(directory, 'workers.json'), JSON.stringify({ version: 1, profiles: [
+    { id: 'analyst', name: 'Analyst', maxInstances: 1, tools: ['read'] },
+  ] }))
   // DSH's preset registry, which takes a selection only before a Session's first turn.
   const started = new Set<string>()
   const presets = { select: vi.fn(async (agent: { id: string }, preset: string) => {
@@ -1689,6 +2069,10 @@ it('selects its own preset again for a main Session or worker a person switched 
   }) }
   services.agentPresets = presets
   await (await restart()).ready
+  const task = runtime.taskRunner!.submit({ objective: 'Analyze an artifact', tasks: [
+    { id: 'analyze', title: 'Analyze', description: 'Inspect the supplied artifact.', worker: 'analyst' },
+  ] }).graph.tasks[0]!
+  await runtime.taskRunner!.drain()
   const emit = (sessionId: string, preset: string) => (runtime as unknown as { ctx: Context }).ctx.emit('agent-preset/selected', sessionId, preset)
   // A person opened the blank main Session in DSH's Web UI, which selected the default preset for it.
   emit(runtime.masterId, 'standard')
@@ -1699,6 +2083,9 @@ it('selects its own preset again for a main Session or worker a person switched 
   expect(presets.select).not.toHaveBeenCalled()
   emit(sessionId, 'standard')
   await vi.waitFor(() => expect(presets.select).toHaveBeenCalledWith(agents.get(sessionId), 'dsh-superagent-worker'))
+  presets.select.mockClear()
+  emit(task.run!.sessionId, 'standard')
+  await vi.waitFor(() => expect(presets.select).toHaveBeenCalledWith(agents.get(task.run!.sessionId), TASK_WORKER_PRESET))
   // Another Session is not one of dsh-superagent's.
   presets.select.mockClear()
   emit('someone-else', 'standard'); emit('worker-nothing', 'standard'); await Promise.resolve()
@@ -1717,7 +2104,7 @@ it('gives a subagent of a worker only the worker\'s work tools, and none once th
   const child = agents.get('child-1')! as unknown as { session: { header: { parentSession?: string } } }
   child.session.header = { parentSession: sessionId }
   await (runtime as unknown as { ctx: Context }).ctx.parallel('agent/created', { agent: child } as never)
-  expect(restricts.get('child-1')).toEqual([{ allow: ['read', 'read_image', 'grep', 'bash', 'job_output', 'job_list', 'job_kill', 'web_search', 'skill'] }])
+  expect(restricts.get('child-1')).toEqual([{ allow: ['read', 'read_image', 'grep', process.platform === 'win32' ? 'pwsh' : 'bash', 'job_output', 'job_list', 'job_kill', 'web_search', 'skill'] }])
   expect(guards.get('child-1')!()).toBeUndefined()
   runtime.engine.stopTicket(ticket.id)
   expect(guards.get('child-1')!()).toBe('Ticket ended; new work needs a new authorized ticket')
@@ -1739,7 +2126,7 @@ it('gives a subagent of a worker\'s subagent the same work tools and guard', asy
     agent.session.header = { parentSession: parent }
     await created.parallel('agent/created', { agent } as never)
   }
-  expect(restricts.get('grandchild-1')).toEqual([{ allow: ['read', 'read_image', 'grep', 'bash', 'job_output', 'job_list', 'job_kill', 'web_search', 'skill'] }])
+  expect(restricts.get('grandchild-1')).toEqual([{ allow: ['read', 'read_image', 'grep', process.platform === 'win32' ? 'pwsh' : 'bash', 'job_output', 'job_list', 'job_kill', 'web_search', 'skill'] }])
   runtime.engine.stopTicket(ticket.id)
   expect(guards.get('grandchild-1')!()).toBe('Ticket ended; new work needs a new authorized ticket')
 })

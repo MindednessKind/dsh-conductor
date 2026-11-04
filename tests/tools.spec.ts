@@ -1,5 +1,7 @@
 /** Session tool registration, role-scoped resource reads, and routing/settings tool contracts. */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import { ToolRuntime, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { TICKET_STATES } from '../src/app/cards.ts'
 import { builtInBase, builtInParts, defaultPrompts } from '../src/app/prompts.ts'
 import { UserError } from '../src/core/index.ts'
@@ -15,6 +17,25 @@ afterEach(async () => { await h.stop() })
 const words = (count: number) => Array.from({ length: count }, () => 'word').join(' ')
 const read = (resource: string, page: { offset?: number; limit?: number } = {}) =>
   h.runTool(h.runtime.masterId, 'orchestrator_read', { resource, ...page })
+
+it('projects registered Host and Worker parameters through the real DSH schema and SDK contracts', async () => {
+  await h.acceptedTicket(feishu('schema', '@bot 检查参数协议'))
+  for (const definitions of h.tools.values()) {
+    const ctx = new Context()
+    ctx.reflect.provide('systemPrompt', { tools: () => () => {} })
+    const registry = new ToolRuntime(ctx)
+    const disposers = [...definitions.values()].map(definition => registry.register(definition as unknown as ToolDefinition))
+    try {
+      const schemas = registry.schemas()
+      expect(schemas).toHaveLength(definitions.size)
+      expect((registry as unknown as { sdkSchemas: () => { name: string; parameters: unknown }[] }).sdkSchemas().map(({ name, parameters }) => ({ name, parameters })))
+        .toEqual(schemas.map(({ name, parameters }) => ({ name, parameters })))
+      const read = schemas.find(schema => schema.name === 'orchestrator_read')!
+      expect(read.parameters).toMatchObject({ type: 'object', properties: { resource: { type: 'string' } } })
+      expect(read.parameters.required).toContain('resource')
+    } finally { for (const dispose of disposers) dispose() }
+  }
+})
 
 it('reads the lists, a ticket, a decision, the settings, the prompts and the models as resources', async () => {
   const { ticket, trigger } = await h.acceptedTicket(feishu('1', '@bot 修一下回归'))

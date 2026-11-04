@@ -1,0 +1,184 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "frontier-coder",
+      "name": "Frontier coder",
+      "description": "Handles complex architecture and cross-cutting implementation tasks assigned by the Host.",
+      "maxInstances": 2,
+      "permissionPreset": "workspace-write",
+      "tools": [
+        "read",
+        "write",
+        "edit",
+        "read_image",
+        "glob",
+        "grep",
+        "web_search",
+        "web_fetch",
+        "todo_write"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "backend-coder",
+      "name": "Backend coder",
+      "description": "Implements APIs, services and persistence changes.",
+      "maxInstances": 3,
+      "permissionPreset": "workspace-write",
+      "tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "web-coder",
+      "name": "Web coder",
+      "description": "Implements browser interfaces and verifies rendered behavior.",
+      "maxInstances": 2,
+      "permissionPreset": "workspace-write",
+      "tools": [
+        "read",
+        "write",
+        "edit",
+        "read_image",
+        "glob",
+        "grep",
+        "web_search",
+        "web_fetch"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "code-reviewer",
+      "name": "Code reviewer",
+      "description": "Reviews changes and reports concrete findings without editing files.",
+      "maxInstances": 2,
+      "permissionPreset": "read-only",
+      "tools": [
+        "read",
+        "read_image",
+        "glob",
+        "grep"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "standards-enforcer",
+      "name": "Standards enforcer",
+      "description": "Checks implementation and documentation against configured project conventions.",
+      "maxInstances": 1,
+      "permissionPreset": "read-only",
+      "tools": [
+        "read",
+        "glob",
+        "grep"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "binary-analysis",
+      "name": "Binary analysis",
+      "description": "Inspects authorized local binary artifacts and reports evidence.",
+      "maxInstances": 2,
+      "permissionPreset": "read-only",
+      "tools": [
+        "read",
+        "read_image",
+        "glob",
+        "grep"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "api-reverse-engineering",
+      "name": "API reverse engineering",
+      "description": "Analyzes authorized API traffic, schemas and local client artifacts.",
+      "maxInstances": 2,
+      "permissionPreset": "read-only",
+      "tools": [
+        "read",
+        "read_image",
+        "glob",
+        "grep",
+        "web_search",
+        "web_fetch"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "endpoint-analysis",
+      "name": "Endpoint analysis",
+      "description": "Maps authorized endpoint behavior and evidence from supplied artifacts.",
+      "maxInstances": 2,
+      "permissionPreset": "read-only",
+      "tools": [
+        "read",
+        "read_image",
+        "glob",
+        "grep"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "script-reverse-engineering",
+      "name": "Script reverse engineering",
+      "description": "Analyzes scripts and documents behavior with reproducible evidence.",
+      "maxInstances": 2,
+      "permissionPreset": "read-only",
+      "tools": [
+        "read",
+        "read_image",
+        "glob",
+        "grep"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "vulnerability-discovery",
+      "name": "Vulnerability discovery",
+      "description": "Finds and documents vulnerabilities in explicitly authorized targets.",
+      "maxInstances": 2,
+      "permissionPreset": "read-only",
+      "tools": [
+        "read",
+        "read_image",
+        "glob",
+        "grep",
+        "web_search",
+        "web_fetch"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "exploit-validation",
+      "name": "Exploit validation",
+      "description": "Validates a reported issue only in the explicitly authorized lab or target scope.",
+      "maxInstances": 1,
+      "permissionPreset": "workspace-write",
+      "tools": [
+        "read",
+        "read_image",
+        "glob",
+        "grep"
+      ],
+      "mcps": [],
+      "skills": [],
+      "prompt": "Test only targets and artifacts explicitly authorized in the task. Do not expand scope, persist access, or affect third-party systems. Report the smallest reproducible evidence and stop when the finding is validated."
+    }
+  ]
+}

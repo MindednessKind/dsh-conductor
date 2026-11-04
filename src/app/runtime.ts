@@ -10,7 +10,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-subprocess'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { lockSync } from 'proper-lockfile'
 import { Engine, key, reasonText, type EngineForSettings, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
@@ -21,6 +21,10 @@ import type { Deployment, Machine } from '../deployment.ts'
 import { environmentOf, ticketEnvironment, type Variable } from './execution-environment.ts'
 import type { SetupProblem } from '../setup.ts'
 import { DshExecutor, sourceTrigger, triggerMessage, workerSessionId } from '../executor/dsh.ts'
+import { WorkerRegistry } from '../tasks/workers.ts'
+import { TaskEngine } from '../tasks/engine.ts'
+import { TaskRunner } from '../executor/tasks.ts'
+import { workerTaskTools } from './tools/tasks.ts'
 import { ticketCard } from './cards.ts'
 import { MasterAssessor } from './assessment.ts'
 import { KV } from '../kv.ts'
@@ -69,6 +73,9 @@ export class Runtime extends Service implements SourceHost {
   readonly assessor: MasterAssessor
   readonly outbox: Outbox
   readonly engine: Engine
+  readonly workers?: WorkerRegistry
+  readonly taskEngine?: TaskEngine
+  readonly taskRunner?: TaskRunner
   readonly passes: Passes
   readonly ready: Promise<void>
   private readonly board = new HealthBoard()
@@ -96,6 +103,17 @@ export class Runtime extends Service implements SourceHost {
     try {
       const report = (error: unknown) => { ctx.logger.warn('dsh-superagent: %s', String(error)) }
       const store = opened = this.store = new Store(join(machine.stateDir, 'orchestrator.sqlite'), report)
+      const workersFile = join(machine.stateDir, 'workers.json')
+      this.workers = existsSync(workersFile) ? WorkerRegistry.read(workersFile) : undefined
+      if (this.workers) {
+        const repository = {
+          get: (id: string) => store.get(KV.tasks.graph(id)),
+          list: () => store.keys(KV.tasks.graph).flatMap(name => { const graph = store.get(name); return graph ? [graph] : [] }),
+          save: (graph: import('../tasks/model.ts').TaskGraph) => store.set(KV.tasks.graph(graph.id), graph),
+          atomic: <T>(operation: () => T): T => store.atomic(operation),
+        }
+        this.taskEngine = new TaskEngine({ repository, workers: this.workers })
+      }
       const setup = this.setup = new Setup({ context: ctx, machine, lifetime: this.lifetime, restart })
       const deployed = () => setup.configured()
         ? environmentOf({ deployment: setup.deployment, sources: this.sources, settings: store.settings() }) : undefined
@@ -121,7 +139,14 @@ export class Runtime extends Service implements SourceHost {
       const sessions = this.sessions = new Sessions({ context: ctx, store, prompts, effects, health: board.claim('models'), masterId,
         lifetime: this.lifetime,
         closing: () => this.closing(), environment,
-        tools: (agent, ticket) => ticket ? executorTools(this.toolHost, ticket) : mainTools(this.toolHost, agent) })
+        workerProfile: () => this.workers?.defaultProfile,
+        taskForSession: sessionId => this.taskRunner?.worker(sessionId),
+        taskOrchestration: !!this.workers,
+        taskProfiles: () => this.workers?.list() ?? [],
+        tools: (agent, ticket, task) => task ? workerTaskTools({ taskRunner: this.taskRunner! }, agent.id, task.profile.skills)
+          : ticket ? executorTools(this.toolHost, ticket) : mainTools(this.toolHost, agent) })
+      if (this.workers && this.taskEngine) this.taskRunner = new TaskRunner({ context: ctx, engine: this.taskEngine, workers: this.workers,
+        sessions, atomic: operation => store.atomic(operation), stateDir: machine.stateDir, lifetime: this.lifetime, closing: () => this.closing() })
       const policyChanged: EngineForSettings['policyChanged'] = (from, to, effects) => { this.engine.policyChanged(from, to, effects) }
       this.settings = new Settings({ store, sources, engine: { policyChanged }, health: board, context: ctx, lifetime: this.lifetime, sessions,
         sourceHost: this, setup, requestPass: () => { this.passes.request() } })
@@ -160,6 +185,7 @@ export class Runtime extends Service implements SourceHost {
         get deployment() { return setup.deployment }, configured: () => setup.configured(),
         get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem }, receive: trigger => passes.receive(trigger) }
       this.toolHost = { context: ctx, engine, store, prompts, sessions, settings: this.settings, assessor, resources,
+        ...(this.taskRunner ? { taskRunner: this.taskRunner } : {}),
         get github() { return runtime.context({ kind: 'github', health: ['github'] }) },
         requestPass: () => { passes.request() }, sendReplies: () => outbox.sent(),
         quietly: run => { this.quiet++; try { return run() } finally { this.quiet-- } } }
@@ -201,13 +227,24 @@ export class Runtime extends Service implements SourceHost {
   private async initialize(): Promise<void> {
     // Register management HTTP routes before setup completes so operators can fix setup problems in the UI.
     this.disposers.push(registerHttp(this.ctx, this.httpHost()))
-    if (!await this.setup.run(this.store.settings())) {
+    const sourceSetupReady = await this.setup.run(this.store.settings())
+    if (!sourceSetupReady && !this.workers) {
       this.runtimeHealth.set({ ...health('paused', 'setupPending'), at: now() })
       return
     }
+    if (this.closing()) return
     this.sessions.install()
     this.executor.install()
     await this.sessions.ensure(this.masterId, this.machine.stateDir, 'dsh-superagent orchestrator', 'orchestrator')
+    this.taskRunner?.resume()
+    // Direct task graphs do not need GitHub/Feishu credentials; only Source-backed Ticket work does.
+    if (!sourceSetupReady) {
+      if (!this.closing()) {
+        this.effects.start()
+        this.runtimeHealth.set({ state: 'ready', detail: 'Task orchestration is ready; Source setup is pending', at: now() })
+      }
+      return
+    }
     for (const id of this.settings.syncable()) await this.settings.sync(id).catch(() => { /* sync() records its failure in health. */ })
     // If stop() was called while awaiting setup, session creation, or policy sync, do not start background loops.
     if (this.closing()) return
@@ -230,14 +267,17 @@ export class Runtime extends Service implements SourceHost {
   private async shutdown(): Promise<void> {
     this.closingFlag = true; const passes = this.passes.stop(); this.stopped.abort()
     try {
+      await this.ready.catch(() => {})
+      await this.taskRunner?.drain()
       this.assessor.stop()
-      const ids = [this.masterId, ...this.store.tickets.list().map(ticket => workerSessionId(ticket.id))]
+      const ids = [this.masterId, ...this.store.tickets.list().map(ticket => workerSessionId(ticket.id)), ...(this.taskRunner?.activeSessions() ?? [])]
       const agents = ids.map(id => this.ctx.agents.get(id as SessionId)).filter((agent): agent is Agent => agent !== undefined)
       for (const agent of agents) agent.cancel({ kind: 'user' }, { keepInbox: true })
-      await Promise.allSettled([passes, this.effects.drain(), ...agents.map(agent => agent.whenIdle())])
+      await Promise.allSettled([passes, this.effects.drain(), this.taskRunner?.shutdown(), ...agents.map(agent => agent.whenIdle())])
       // The workers' jobs and subagents stop too: their ends would start worker turns without the tool limits released below.
       await this.executor.shutdown()
       this.executor.dispose()
+      this.taskRunner?.dispose()
       this.sessions.dispose()
       for (const dispose of this.disposers.reverse()) dispose()
       await this.ctx.sessionPersistence.flush()

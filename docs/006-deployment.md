@@ -5,25 +5,26 @@ Use this guide to install, configure and operate dsh-superagent. It covers accou
 ## What runs
 
 - **A dedicated DeepSeek Harness profile**, called `superagent` in this guide. Create it from the Web profile template. It loads the bundle and serves its panel on `127.0.0.1`. Keep it separate from the profile you work in: the plugin changes process-wide `PATH` and git settings, and its process needs independent restarts and upgrades.
-- **An agent GitHub account.** The agent comments, pushes branches and opens pull requests as this account, through a GitHub CLI signed in only as that account.
+- **A Worker catalog** for direct task orchestration. JSON defines the available roles, per-role concurrency and exact tool, MCP and Skill grants.
+- **Optional:** an agent GitHub account for repository intake. The agent comments, pushes branches and opens pull requests as this account, through a GitHub CLI signed in only as that account.
 - **Optional:** a Feishu bot for chat requests.
 
-Plugin configuration holds the state directory and machine limits. Use the panel for everything else: Sources for the repository and accounts, Policy for allowed lists, and Execution for worker directories and commands.
+Plugin configuration holds the state directory and machine limits. Direct task roles are configured in `<stateDir>/workers.json`. Source-backed work uses the panel: Sources for the repository and accounts, Policy for allowed lists, and Execution for Ticket worker directories and commands.
 
 ### Permissions and isolation
 
-The bundle defines `dsh-superagent-worker` for Executors and `dsh-superagent-router` for the main Session. They appear in the DeepSeek Harness preset list but are intended only for dsh-superagent. Do not select them for personal Sessions or disable their configuration rows. The application needs them to create and resume its Sessions.
+The bundle defines `dsh-superagent-worker` for Ticket Executors, `dsh-superagent-task-worker` for generic task Workers, and `dsh-superagent-router` for the main Session. They appear in the DeepSeek Harness preset list but are intended only for dsh-superagent. Do not select them for personal Sessions or disable their configuration rows. The application needs them to create and resume its Sessions.
 
 Opening a blank managed Session in the Web UI can select the profile's default preset. dsh-superagent restores its role-specific preset before the first turn.
 
-Both presets run with `danger-full-access` as the operator's OS user and read messages from subscribed Threads. Account wrappers choose the agent's credentials by default; they do not isolate the process. A worker can execute programs by path and read the operator's home directory. For isolation, use a dedicated OS account containing only the agent's credentials.
+The router runs with `danger-full-access`. Ticket workers without a configured Worker profile keep that preset; profile-based Workers use their configured `permissionPreset` (default `workspace-write`). These presets run as the operator's OS user and do not create an OS sandbox. Tool allowlists constrain DSH tool calls, not programs a permitted shell can launch, filesystem access by path, network access, or credentials. For isolation, use a dedicated OS account containing only the agent's credentials.
 
 ## Prerequisites
 
-- Node.js 22.19+ or 24+, pnpm, git 2.32+, Python 3.8+ and tmux
-- GitHub CLI (`gh`) 2.48 or later. Source CLI fields must point to `gh` or `lark-cli` wrappers; the host relies on their subcommands and output formats.
-- A repository on github.com; GitHub Enterprise Server is not supported. To create a checkout per Ticket, keep a local clone from which the prepare command can add worktrees. Install `git-lfs` if that repository uses Git LFS.
+- Node.js 22.19+ or 24+, pnpm, and DeepSeek Harness satisfying `engines.dsh` in `package.json`.
 - A model provider configured for DeepSeek Harness. dsh-superagent uses the profile's default model unless the Eval or Execution settings name another.
+- For direct tasks: a valid Worker catalog and the tools, MCP services and Skills granted by its profiles. GitHub and Feishu accounts are optional.
+- For GitHub Ticket work: git 2.32+, Python 3.8+, tmux, GitHub CLI (`gh`) 2.48+ and a repository on github.com. GitHub Enterprise Server is not supported. Keep a local clone for per-Ticket worktrees; install `git-lfs` if the repository uses it. Source CLI fields must point to compatible `gh` or `lark-cli` wrappers.
 - For Feishu: `lark-cli` (tested with 1.0.90) and a Feishu or Lark app with a bot
 
 ## Accounts
@@ -92,10 +93,18 @@ Copy [examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) t
 
 | Key | Required | Meaning |
 | --- | --- | --- |
-| `stateDir` | yes | Absolute path: the database, the lock, the command shims in `worker-bin`, the agent's git configuration and, by default, the Ticket directories in `work`. Back it up before upgrades |
+| `stateDir` | yes | Absolute path native to the host OS: the database, the lock, the command shims in `worker-bin`, the agent's git configuration and, by default, the Ticket directories in `work`. On Windows, use a drive path such as `C:/Users/me/.dsh/state/superagent`; a POSIX-looking `/tmp/...` path is not a fully qualified DSH workspace. Back it up before upgrades |
 | `promptMaxChars`, `admissionContextMaxPages`, `admissionContextTimeoutMs` | no | The largest saved prompt configuration, and how many Thread pages one assessment reads within what time |
 
 After the first start, edit machine limits in **Settings → Deployment** or the DeepSeek Harness Plugin Manager. Changes apply without restart. `stateDir` cannot be changed there. Invalid values or unknown configuration keys prevent startup; the log identifies the key.
+
+### Worker catalog
+
+To enable direct user-directed task graphs, copy [examples/workers.json](../examples/workers.json), [the Coding template](../examples/workers.coding.json), or [the security template](../examples/workers.security.json) to `<stateDir>/workers.json`. Edit the profiles for the installed tools, MCP tools and Skills in this DSH profile. The Host reads this file at startup; restart dsh-superagent after changing it. Direct task graphs can run without GitHub or Feishu setup. A missing file leaves the existing Source/Ticket workflow available without generic task tools.
+
+Each profile has a stable `id`, a `name`, `maxInstances`, and optional `description`, `permissionPreset`, `tools`, `mcps`, `skills`, `prompt`, `model` and `workspaceRoot`. Each `mcps` row uses the DSH MCP `serverName` and remote tool names; the runtime allowlists their exact registered names, `mcp__<serverName>__<tool>`. The server must already be configured in DeepSeek Harness and each named tool must be present in the Session scope. Empty capability lists grant no tools, MCP tools or Skills. Generic task Workers use a separate domain-neutral preset with no subagent or global Skill tool; a runtime guard rejects every tool call outside the profile even if a DSH plugin registers it on the Agent itself. The repository README links to the Worker orchestration guide with the complete schema and domain examples.
+
+Task workspaces default to `<stateDir>/task-workspaces/<graph>/<task>`. A profile may set its own absolute `workspaceRoot`; a task's optional absolute `workspace` must resolve beneath it. This selects the DSH workspace and is not an operating-system boundary. The JSON catalog is not editable in the panel yet.
 
 ## Start and stop
 
@@ -243,7 +252,7 @@ A database migrated by a newer version cannot be opened by an older one. Rollbac
 
 ### Agent presets
 
-The worker and router presets move shell commands to the background after 5 seconds. A Session cannot load without its preset. Keep the `dsh-superagent-worker` and `dsh-superagent-router` rows in `cordis.patch.yml` while their Sessions are in use; otherwise resume fails with `agent-preset/not-found`.
+The worker, task-worker and router presets move shell commands to the background after 5 seconds. A Session cannot load without its preset. Keep the `dsh-superagent-worker`, `dsh-superagent-task-worker` and `dsh-superagent-router` rows in `cordis.patch.yml` while their Sessions are in use; otherwise resume fails with `agent-preset/not-found`.
 
 ## Troubleshooting
 

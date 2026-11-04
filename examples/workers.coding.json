@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "frontier-coder",
+      "name": "Frontier coder",
+      "description": "Handles complex architecture and cross-cutting implementation tasks assigned by the Host.",
+      "maxInstances": 2,
+      "permissionPreset": "workspace-write",
+      "tools": [
+        "read",
+        "write",
+        "edit",
+        "read_image",
+        "glob",
+        "grep",
+        "web_search",
+        "web_fetch",
+        "todo_write"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "backend-coder",
+      "name": "Backend coder",
+      "description": "Implements APIs, services and persistence changes.",
+      "maxInstances": 3,
+      "permissionPreset": "workspace-write",
+      "tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "web-coder",
+      "name": "Web coder",
+      "description": "Implements browser interfaces and verifies rendered behavior.",
+      "maxInstances": 2,
+      "permissionPreset": "workspace-write",
+      "tools": [
+        "read",
+        "write",
+        "edit",
+        "read_image",
+        "glob",
+        "grep",
+        "web_search",
+        "web_fetch"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "code-reviewer",
+      "name": "Code reviewer",
+      "description": "Reviews changes and reports concrete findings without editing files.",
+      "maxInstances": 2,
+      "permissionPreset": "read-only",
+      "tools": [
+        "read",
+        "read_image",
+        "glob",
+        "grep"
+      ],
+      "mcps": [],
+      "skills": []
+    },
+    {
+      "id": "standards-enforcer",
+      "name": "Standards enforcer",
+      "description": "Checks implementation and documentation against configured project conventions.",
+      "maxInstances": 1,
+      "permissionPreset": "read-only",
+      "tools": [
+        "read",
+        "glob",
+        "grep"
+      ],
+      "mcps": [],
+      "skills": []
+    }
+  ]
+}
